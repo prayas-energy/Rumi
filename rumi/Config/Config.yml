@@ -1,0 +1,56 @@
+# Copyright 2021 Prayas Energy Group(https://www.prayaspune.org/peg/)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+# !!!! IMPORTANT NOTE !!!!
+# To specify any configuration parameter, the syntax is:
+# conf_param_name: conf_param_value
+# Note that the ':' character must necessarily be followed by a ' ' character.
+# In other words, there must be a colon followed by a space between the conf_param_name and the conf_param_value.
+# Any line in this file that starts with # is treated as a comment line; thus this line too is a comment line.
+
+####    Solver configuration parameters
+
+# Solver Config Parameter #01
+# solver_name is mandatory
+# For supply processing, you need to install a solver (e.g. CBC, CPLEX or Gurobi) that is supported by Pyomo.
+#
+# IMPORTANT: Uncomment the following line and specify the name of the solver to be used.
+#solver_name: cbc
+
+# Solver Config Parameter #02
+# solver_executable is optional
+# If not specified, the PATH environment variable will be used to search for the executable corresponding to the specified solver name.
+#
+#solver_executable: C:\cbc\bin\cbc.exe
+
+# Solver Config Parameter #03
+# solver_options_file is optional.
+# If specified, the file must be present in the same folder as this Config.yml file.
+# So this parameter is simply a filename - without any path.
+# The specified file should be in the CSV format, with each line specifying a valid solver option and its corresponding value.
+# Please check your solver's documentation for supported options.
+#
+#solver_options_file: solver_options.csv
+
+####    Pyomo configuration parameters
+
+# Pyomo Config Parameter #01
+# symbolic_solver_labels is optional
+# If specified, its value must be one of: true, false
+# If unspecified, its value is taken as false
+# When specified as true, the LP file that is produced and passed to the solver will have meaningful names;
+# this helps in debugging - in case the solver reports issues
+#
+symbolic_solver_labels: false

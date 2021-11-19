@@ -1,0 +1,815 @@
+# Copyright 2021 Prayas Energy Group(https://www.prayaspune.org/peg/)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Key abbreviations:
+# DS Demand sector
+# ES Energy service
+# EC Energy carrier
+# ST Service technology
+# CT Consumer type
+
+
+DS_ES_Map:
+  filetype: csv
+  columns:
+    DemandSector:
+      type: str
+    EnergyService:
+      type: str
+    InputType:
+      type: str
+  validation:
+    - code: x_in_y(x=InputType, y=('EXTRANEOUS','GDPELASTICITY','BOTTOMUP','RESIDUAL'))
+      message: In DS_ES_Map, InputType must be one of EXTRANEOUS, GDPELASTICITY, BOTTOMUP, or RESIDUAL
+    - code: unique(list(zip(DemandSector, EnergyService)))
+      message: In DS_ES_Map, a specific <DemandSector, EnergyService> combination can occur only once
+    - code: all(DS_ES_Map.query("InputType == 'RESIDUAL'").groupby(['DemandSector'])['InputType'].size() <= 1)
+      message: In DS_ES_Map, in any DemandSector, there can be at the most one EnergyService with InputType "RESIDUAL"
+
+
+DS_ES_EC_Map:
+  filetype: csv
+  axis : column
+  noheader: True
+  loader: rumi.io.demand.expand_DS_ES_EC
+  optional: True
+  dependencies:
+    - DS_ES_Map
+    - PhysicalPrimaryCarriers
+    - NonPhysicalPrimaryCarriers
+    - PhysicalDerivedCarriers
+    - NonPhysicalDerivedCarriers
+  validation:
+    - code: all([len(DS_ES_Map.query(f"DemandSector == '{ds}' & EnergyService == '{es}'"))==1 for ds,es in zip(*transpose(take_columns(DS_ES_EC_Map, 2)))])
+      message: Every <DemandSector, EnergyService> combination from DS_ES_EC_Map should also be specified in DS_ES_Map
+    - code: not_BOTTOMUP(DS_ES_EC_Map, DS_ES_Map)
+      message: DS_ES_EC_Map can have only <DemandSector,EnergyService> combinations which are not BOTTOMUP
+    - code: unique(list(zip(*transpose(take_columns(DS_ES_EC_Map, 2)))))
+      message: In DS_ES_EC_Map, <DemandSector, EnergyService> combination should not be repeated
+    - code: x_in_y(x=concat(*[row[2:] for row in DS_ES_EC_Map]), y=concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
+      message: DS_ES_EC_Map can have only EnergyCarriers those are defined in PhysicalPrimaryCarriers, PhysicalDerivedCarriers or NonPhysicalDerivedCarriers
+    - code: check_RESIDUAL_EC(DS_ES_Map, DS_ES_EC_Map)
+      message: In DS_ES_EC_Map, EnergyCarrier is not confirming to "RESIDUAL" condition
+    - code: check_ALL_DS(DS_ES_EC_Map)
+      message: In DS_ES_EC_Map, EnergyService used with "ALL" as DemandSector can not be used with any other DemandSector
+    - code: all([unique(row) for row in drop_columns(DS_ES_EC_Map, 2)])
+      message: In DS_ES_EC_Map, in every row EnergyCarrier name should not be repeated
+
+
+DS_ES_ST_Map:
+  filetype: csv
+  axis: column
+  noheader: True
+  loader: rumi.io.demand.expand_DS_ES_ST
+  optional: True
+  dependencies:
+    - DS_ES_Map
+  validation:
+    - code: all([len(DS_ES_Map.query(f"DemandSector == '{ds}' & EnergyService == '{es}'"))==1 for ds,es in zip(*transpose(take_columns(DS_ES_ST_Map, 2)))])
+      message: Every <DemandSector, EnergyService> combination from DS_ES_ST_Map should also be specified in DS_ES_Map
+    - code: all("+" not in x for x in flatten(drop_columns(DS_ES_ST_Map, 2)))
+      message: In DS_ES_ST_Map, character + is not allowed in name of ServiceTech
+    - code: are_BOTTOMUP(DS_ES_ST_Map, DS_ES_Map)
+      message: DS_ES_ST_Map can only have those <DemandSector,EnergyService> combinations whose InputType is BOTTOMUP
+    - code: all([unique(row) for row in drop_columns(DS_ES_ST_Map, 2)])
+      message: In DS_ES_ST_Map, in every row ServiceTech name should not repeat
+    - code: check_ALL_DS(DS_ES_ST_Map)
+      message: In DS_ES_ST_Map, ServiceTech used with "ALL" as DemandSector can not be used with any other DemandSector
+    - code: check_ST_ES(DS_ES_ST_Map)
+      message: In DS_ES_ST_Map, if a ServiceTech occurs in multiple <DemandSector, EnergyService> combinations, the EnergyService in each of those combinations must be the same
+
+
+DS_Cons1_Map:
+  filetype: csv
+  axis: column
+  noheader: True
+  map: True
+  dependencies:
+    - DS_ES_Map
+  validation:
+    ## we have no way to check this! if DS repeats, then last occurence will be considered. do we add this to specifications?
+    #- code: unique(DS_Cons1_Map.keys())
+    #  message: DemandSector in DS_Cons1_Map should not be repeated
+    - code: one_to_one(DS_Cons1_Map.keys(), DS_ES_Map['DemandSector'])
+      message: All DemandSectors in DS_Cons1_Map should match exactly with entries in DS_ES_Map
+    - code: all(map(unique, drop_columns(DS_Cons1_Map, 3)))
+      message: In DS_Cons1_Map, the list of ConsumerTypes specified for a given DemandSector should not repeat
+    - code: check_time_granularity_DS_Cons1()
+      message: Time granularity in DS_Cons1_Map should be coarser than or equal to BalancingTime of corresponding EnergyCarriers
+    - code: check_geo_granularity_DS_Cons1()
+      message: Geographic granularity in DS_Cons1_Map should be finer or equal to BalancingArea of corresponding EnergyCarriers
+    - code: all([x_in_y([values[0]], utilities.get_valid_geographic_levels()) for values in DS_Cons1_Map.values()])
+      message: In DS_Cons1_Map, GeographicGranularity must be one of {utilities.get_valid_geographic_levels()}
+    - code: all([x_in_y([values[1]], utilities.get_valid_time_levels()) for values in DS_Cons1_Map.values()])
+      message: In DS_Cons1_Map, TimeGranularity must be one of {utilities.get_valid_time_levels()}
+    
+
+Cons1_Cons2_Map:
+  filetype: csv
+  axis: column
+  noheader: True
+  map: True
+  optional: True
+  dependencies:
+    - DS_Cons1_Map
+  validation:
+    - code: all([unique(v) for v in Cons1_Cons2_Map.values()])
+      message: In Cons1_Cons2_Map, second level of consumer type should have unique values for every first level consumer type
+    - code: x_in_y(x=Cons1_Cons2_Map.keys(), y=flatten([row[2:] for row in DS_Cons1_Map.values()]))
+      message: ConsumerType1 in Cons1_Cons2_Map can be only those declared in DS_Cons1_Map
+    - code: all([all(check) or not any(check) for check in [[level in Cons1_Cons2_Map for level in DS_Cons1_Map[DS][2:]] for DS in DS_Cons1_Map]])
+      message: In Cons1_Cons2_Map, for each DemandSector, either all of its first-level ConsumerTypes should occur or none should occur
+
+      
+ST_Info:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    ServiceTech:
+      type: str
+    EnergyCarrier:
+      type: str
+    EnergyServiceUnit:
+      type: str
+    NumEfficiencyLevels:
+      type: int
+      min: 1
+  dependencies:
+    - DS_ES_ST_Map
+  vaidations:
+    - code: unique(ServiceTech)
+      message: ServiceTech in ST_Info should not be repeated
+    - code: one_to_one(set(get_mapped_items(DS_ES_ST_Map)), ST_Info.ServiceTech)
+      message: All ServiceTechs in ST_Info should match exactly with entries in DS_ES_ST_Map
+    - code: x_in_y(ST_Info.EnergyCarrier, concat(get_col(PhysicalDerivedCarriers, 'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers, 'EnergyCarrier'), get_col(PhysicalPrimaryCarriers,'EnergyCarrier')))
+      message: EnergyCarrier in ST_Info can be only from PhysicalPrimaryCarriers, PhysicalDerivedCarriers and NonPhysicalDerivedCarriers specified in Common parameters
+
+            
+DS_ES_EC_DemandGranularity_Map:
+  filetype: csv
+  axis: column
+  loader: rumi.io.demand.expand_DS_ES_EC_DemandGranularity_Map
+  columns:
+    DemandSector:
+      type: str
+    EnergyService:
+      type: str
+    EnergyCarrier:
+      type: str
+    ConsumerGranularity:
+      type: str
+    GeographicGranularity:
+      type: str
+    TimeGranularity:
+      type: str
+  validation:
+    - code: x_in_y(x=ConsumerGranularity, y=('CONSUMERALL', 'CONSUMERTYPE1', 'CONSUMERTYPE2'))
+      message: In DS_ES_EC_DemandGranulatity_Map, ConsumerGranularity must be one of "CONSUMERALL", "CONSUMERTYPE1", "CONSUMERTYPE2"
+    - code: x_in_y(x=GeographicGranularity, y=utilities.get_valid_geographic_levels())
+      message: In DS_ES_EC_DemandGranulatity_Map, GeographicGranularity must be one of {utilities.get_valid_geographic_levels()}
+    - code: x_in_y(x=TimeGranularity, y=utilities.get_valid_time_levels())
+      message: In DS_ES_EC_DemandGranulatity_Map, TimeGranularity must be one of {utilities.get_valid_time_levels()}
+    - code: check_ALL_ES(DS_ES_EC_DemandGranularity_Map)
+      message: In DS_ES_EC_DemandGranulatity_Map, if EnergyService is given as "ALL" for some <DemandSector, EnergyService, EnergyCarrier> combination in the map, then that <DemandSector, EnergyCarrier> cannot occur again in combination with any other EnergyService
+    - code: unique(list(zip(*listcols(DS_ES_EC_DemandGranularity_Map[['DemandSector', 'EnergyService', 'EnergyCarrier']]))))
+      message: In DS_ES_EC_DemandGranulatity_Map, <DemandSector,EnergyService,EnergyCarrier> combination should not repeat
+    - code: check_DS_ES_EC_validity()
+      message: All <DemandSector,EnergyService,EnergyCarrier> combinations in DS_ES_EC_DemandGranularity_Map should exactly match those that occur in the model
+
+    - code: all([get_consumer_levels(ds)==2 for ds in DS_ES_EC_DemandGranularity_Map.query("ConsumerGranularity == 'CONSUMERTYPE2'")['DemandSector']])
+      message: In DS_ES_EC_DemandGranularity_Map, ConsumerGranularity can be given as "CONSUMERTYPE2" only for those DemandSectors for which second level of consumer type is defined in Cons1_Cons2_Map
+
+    # granularities check ..for all carriers
+    - code: utilities.check_balancing_area_gran('DS_ES_EC_DemandGranularity_Map', DS_ES_EC_DemandGranularity_Map, ['DemandSector','EnergyService','EnergyCarrier'],'finer')
+      message: Geographic granularity for one or more EnergyCarrier specified in DS_ES_EC_DemandGranularity_Map is incorrect. Check log for more details      
+    - code: utilities.check_balancing_time_gran('DS_ES_EC_DemandGranularity_Map', DS_ES_EC_DemandGranularity_Map, ['DemandSector','EnergyService','EnergyCarrier'],'finer')
+      message: Time granularity for one or more EnergyCarrier specified in DS_ES_EC_DemandGranularity_Map is incorrect. Check log for more details
+
+    # granularities check ..for RESIDUAL type
+    - code: check_granularity("TimeGranularity")
+      message: In DS_ES_EC_DemandGranulatity_Map, TimeGranularity specified for a "RESIDUAL" EnergyService should be coarser or equal to the time granularities specified for any other EnergyService with the same <DemandSector, EnergyCarrier> combination
+    - code: check_granularity("GeographicGranularity")
+      message: In DS_ES_EC_DemandGranulatity_Map, GeographicGranularity specified for a "RESIDUAL" EnergyService should be coarser or equal to the geographic granularities specified for any other EnergyService with the same <DemandSector, EnergyCarrier> combination
+
+
+      
+DS_ST_Granularity_Map:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    DemandSector:
+      type: str
+    ServiceTech:
+      type: str
+    ConsumerGranularity:
+      type: str
+    GeographicGranularity:
+      type: str
+    TimeGranularity:
+      type: str
+  dependencies:
+    - ST_Info
+    - DS_ES_EC_DemandGranularity_Map
+    - DS_ES_ST_Map
+  validation:
+    - code: x_in_y(x=ConsumerGranularity, y=('CONSUMERALL', 'CONSUMERTYPE1', 'CONSUMERTYPE2'))
+      message: In DS_ST_Granularity_Map, ConsumerGranularity must be one of "CONSUMERALL", "CONSUMERTYPE1", "CONSUMERTYPE2"
+    - code: x_in_y(x=GeographicGranularity, y=utilities.get_valid_geographic_levels())
+      message: In DS_ST_Granularity_Map, GeographicGranularity must be one of {utilities.get_valid_geographic_levels()} 
+    - code: x_in_y(x=TimeGranularity, y=utilities.get_valid_time_levels())
+      message: In DS_ST_Granularity_Map, TimeGranularity must be one of {utilities.get_valid_time_levels()}
+    - code: all([get_consumer_levels(ds)==2 for ds in DS_ST_Granularity_Map.query("ConsumerGranularity == 'CONSUMERTYPE2'")['DemandSector']])
+      message: In DS_ST_Granularity_Map, ConsumerGranularity can be given as "CONSUMERTYPE2" only for those DemandSectors for which second level of consumer type is defined in Cons1_Cons2_Map
+    - code: one_to_one(list(zip(DemandSector, ServiceTech)), concat(*[[(row[0],item) for item in row[2:]] for row in DS_ES_ST_Map]))
+      message: All <DemandSector,ServiceTech> combinations in DS_ST_Granularity_Map should exactly match those that occur in DS_ES_ST_Map
+    - code: check_ST_granularity()        
+      message: granuarity must be coarser than corresponding granularty in DS_ES_EC_DemandGranularity_Map for derived DS,ES,EC from DS,ST
+
+
+
+BaseYearDemand:
+  filetype: csv
+  loader: rumi.io.demand.get_BaseYearDemand
+  nested: $demand_sector
+  columns:
+    EnergyService:
+      type: str
+    EnergyCarrier:
+      type: str
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    Season:
+      type: str
+      optional: True
+    DayType:
+      type: str
+      optional: True
+    DaySlice:
+      type: str
+      optional: True
+    BaseYearDemand:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year == {ModelPeriod.StartYear.iloc[0]-1}
+  validation:
+    - code: check_geographic_validity(BaseYearDemand, 'BaseYearDemand',['EnergyService','EnergyCarrier'], exact=True)
+      message: BaseYearDemand data should have valid data for all specified geographics level 
+    - code: utilities.unique_across(BaseYearDemand, ['EnergyService','EnergyCarrier'])
+      message: BaseYearDemand data should not repeat for <EnergyService,EnergyCarrier> combination
+    - code: check_consumer_validity(BaseYearDemand, 'BaseYearDemand',['EnergyService','EnergyCarrier'], demand_sector=demand_sector)
+      message: BaseYearDemand data should have valid data for all specified consumer levels
+
+    - code: one_to_one(derive_ES_EC(demand_sector, 'GDPELASTICITY'), set(zip(EnergyService,EnergyCarrier)))
+      method:  All <EnergyService,EnergyCarrier> combinations in BaseYearDemand should exactly match those that correspond to GDPELASTICITY type <DemandSector,EnergyService> and DS_ES_EC_map
+
+    #TODO checking time validity is complex!
+
+    
+DemandElasticity:
+  filetype: csv
+  loader: rumi.io.demand.get_DemandElasticity
+  nested: $demand_sector
+  columns:
+    EnergyService:
+      type: str
+    EnergyCarrier:
+      type: str
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+    Elasticity:
+      type: float
+  dependencies:
+      - ModelPeriod
+  filterqueries:
+      - Year >= {ModelPeriod.StartYear.iloc[0]}
+      - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(DemandElasticity, 'DemandElasticity',['EnergyService','EnergyCarrier'], exact=True)
+      message: DemandElasticity data should have valid data for all years of ModelPeriod
+    - code: check_geographic_validity(DemandElasticity, 'DemandElasticity',['EnergyService','EnergyCarrier'], exact=True)
+      message: DemandElasticity data should have valid data for all specified geographics levels
+    - code: check_consumer_validity(DemandElasticity, 'DemandElasticity',['EnergyService','EnergyCarrier'], demand_sector=demand_sector, exact=True)
+      message: DemandElasticity data should have valid data for all specified consumer levels
+    - code: utilities.unique_across(DemandElasticity, ['EnergyService','EnergyCarrier'])
+      message: DemandElasticity data should not repeat for <EnergyService,EnergyCarrier> combination
+    - code: one_to_one(derive_ES_EC(demand_sector, 'GDPELASTICITY'), set(zip(EnergyService,EnergyCarrier)))
+      method:  All <EnergyService,EnergyCarrier> combinations in DemandElasticity should exactly match those that correspond to GDPELASTICITY type <DemandSector,EnergyService> and DS_ES_EC_map
+
+      
+ExtraneousDemand:
+  filetype: csv
+  loader: rumi.io.demand.get_ExtraneousDemand
+  nested: $demand_sector
+  columns:
+    EnergyService:
+      type: str
+    EnergyCarrier:
+      type: str
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    Season:
+      type: str
+      optional: True
+    DayType:
+      type: str
+      optional: True
+    DaySlice:
+      type: str
+      optional: True
+    EnergyDemand:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(ExtraneousDemand, 'ExtraneousDemand',['EnergyService','EnergyCarrier'], exact=True)
+      message: ExtraneousDemand data should have valid data for all specified time columns
+    - code: check_geographic_validity(ExtraneousDemand, 'ExtraneousDemand',['EnergyService','EnergyCarrier'], exact=True)
+      message: ExtraneousDemand data should have valid data for all specified geographics level
+    - code: check_consumer_validity(ExtraneousDemand, 'ExtraneousDemand',['EnergyService','EnergyCarrier'], demand_sector=demand_sector, exact=True)
+      message: ExtraneousDemand data should have valid data for all specified consumer level
+    - code: utilities.unique_across(ExtraneousDemand, ['EnergyService','EnergyCarrier'])
+      message: ExtraneousDemand data should not repeat for <EnergyService,EnergyCarrier> combination
+    - code: one_to_one(derive_ES_EC(demand_sector, 'EXTRANEOUS'), set(zip(EnergyService,EnergyCarrier)))
+      method:  All <EnergyService,EnergyCarrier> combinations in ExtraneousDemand should exactly match those that correspond to EXTRANEOUS type <DemandSector,EnergyService> and DS_ES_EC_map
+
+      
+ST_Efficiency:
+  filetype: csv
+  loader: rumi.io.demand.get_ST_Efficiency
+  nested: $demand_sector
+  optional: True
+  columns:
+    ServiceTech:
+      type: str
+    EfficiencyLevelName:
+      type: str
+    Year:
+      type: int
+    Efficiency:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+    - DS_ES_ST_Map
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(ST_Efficiency, 'ST_Efficiency',['ServiceTech','EfficiencyLevelName'], exact=True)
+      message: ST_Efficiency data should have valid data for all specified time columns
+    - code: set(ST_Efficiency.groupby(['ServiceTech', 'EfficiencyLevelName']).count()['Year'])==set([len(range(*ModelPeriod.values[0]))+1])
+      message: Efficiency should be specified for every year of ModelPeriod for each <ServiceTech,EfficiencyLevelName>
+    - code: one_to_one(ServiceTech,concat(*[row[2:] for row in DS_ES_ST_Map]))
+      message: All ServiceTechs in ST_Efficiency should exactly match with ServiceTechs provided in DS_ES_ST_Map
+    - code: check_efficiency_levels(ST_Efficiency, 'ST_Effciency', demand_sector)
+      message: Number of efficiency levels specified in ST_Efficiency is inconsistent with those specified in ST_Info
+
+
+NumConsumers:
+  filetype: csv
+  loader: rumi.io.demand.get_NumConsumers
+  nested: $demand_sector
+  filteronperiod: True
+  columns:
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    Season:
+      type: str
+      optional: True
+    DayType:
+      type: str
+      optional: True
+    DaySlice:
+      type: str
+      optional: True
+    NumConsumers:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(NumConsumers, 'NumConsumers',[], exact=True)
+      message: NumConsumers data should have valid data for all specified time columns
+    - code: check_geographic_validity(NumConsumers, 'NumConsumers',[], exact=True)
+      message: NumConsumers data should have valid data for all specified geographics level
+    - code: check_consumer_validity(NumConsumers, 'NumConsumers',[], demand_sector=demand_sector, exact=True)
+      message: NumConsumers data should have valid data for all specified consumer level
+
+
+NumInstances:
+  filetype: csv
+  loader: rumi.io.demand.get_NumInstances
+  nested: $demand_sector,$energy_service
+  columns:
+    ServiceTech:
+      type: str
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+    NumInstances:
+      type: float
+      min: 1.0
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(NumInstances, 'NumInstances',['ServiceTech'], exact=True)
+      message: NumInstances data should have valid data for all specified time columns
+    - code: check_geographic_validity(NumInstances, 'NumConsumers',['ServiceTech'], exact=True)
+      message: NumInstances data should have valid data for all specified geographics level
+    - code: check_consumer_validity(NumInstances, 'NumInstances',['ServiceTech'], demand_sector=demand_sector, exact=True)
+      message: NumInstances data should have valid data for all specified consumer level
+
+
+    
+EfficiencyLevelSplit:
+  filetype: csv
+  loader: rumi.io.demand.get_EfficiencyLevelSplit
+  nested: $demand_sector,$energy_service
+  columns:
+    ServiceTech:
+      type: str
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    EfficiencyLevelName:
+      type: str
+    Year:
+      type: int
+    SplitShare:
+      type: float
+      min: 0
+      max: 1
+  dependencies:
+    - ModelPeriod
+    - DS_ES_ST_Map
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(EfficiencyLevelSplit, 'EfficiencyLevelSplit',['ServiceTech', 'EfficiencyLevelName'], exact=True)
+      message: EfficiencyLevelSplit data should have valid data for all specified time columns
+    - code: check_geographic_validity(EfficiencyLevelSplit, 'EfficiencyLevelSplit',['ServiceTech','EfficiencyLevelName'], exact=True)
+      message: EfficiencyLevelSplit data should have valid data for all specified geographics level
+    - code: one_to_one(zip(ServiceTech, EfficiencyLevelName), zip(get_ST_Efficiency(demand_sector).ServiceTech, get_parameter('ST_Efficiency', demand_sector=demand_sector).EfficiencyLevelName))
+      message:  All EfficiencyLevelNames in each ServiceTech in EfficiencyLevelSplit, should exactly match with EfficiencyLevelNames specified for that ServiceTech provided in ST_Efficiency
+    - code: check_consumer_validity(EfficiencyLevelSplit, 'EfficiencyLevelSplit',['ServiceTech','EfficiencyLevelName'], demand_sector=demand_sector, exact=True)
+      message: EfficiencyLevelSplit data should have valid data for all specified consumer level
+    - code: one_to_one(ServiceTech, concat(*[row[2:] for row in DS_ES_ST_Map if row[0]==demand_sector and row[1]==energy_service]))
+      message: All ServiceTechs in EfficiencyLevelSplit for {demand_sector},{energy_service} , should exactly match with those specified in DS_ES_ST_Map
+    # TODO For each <consumer-type, geography, time> combination, the sum of SplitShare values across all EfficiencyLevelNames must equal 1
+    - code: abs(EfficiencyLevelSplit.groupby(utilities.get_all_structure_columns(EfficiencyLevelSplit, index_cols=['ServiceTech'])).sum().prod()['SplitShare'] - 1.0)<=0.001
+      message: In EfficiencyLevelSplit for {demand_sector},{energy_service}, for each <consumer-type, geography, time> combination, the sum of SplitShare values across all EfficiencyLevelNames must equal 1
+    
+Penetration:
+  filetype: csv
+  loader: rumi.io.demand.get_Penetration
+  nested: $demand_sector,$energy_service
+  columns:
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+    Season:
+      type: str
+      optional: True
+    DayType:
+      type: str
+      optional: True
+    DaySlice:
+      type: str
+      optional: True
+    Penetration:
+      type: float
+      min: 0
+      max: 1
+    
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(Penetration, 'Penetration',[], exact=True)
+      message: Penetration data should have valid data for all specified time columns
+    - code: check_geographic_validity(Penetration, 'Penetration',[], exact=True)
+      message: Penetration data should have valid data for all specified geographics level
+    - code: check_consumer_validity(Penetration, 'Penetration',[], demand_sector=demand_sector, exact=True)
+      message: Penetration data should have valid data for all specified consumer level
+    ## Granularity , check specs (coarsest of granularities of STS in file name) # take STs only from filename
+      
+ES_Demand:
+  filetype: csv
+  loader: rumi.io.demand.get_ES_Demand
+  nested: $demand_sector,$energy_service
+  columns:
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    Season:
+      type: str
+      optional: True
+    DayType:
+      type: str
+      optional: True
+    DaySlice:
+      type: str
+      optional: True
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: check_time_validity(ES_Demand, 'ES_Demand',[], exact=True)
+      message: ES_Demand data for {demand_sector},{energy_service} should have valid data for all specified time columns
+    - code: check_geographic_validity(ES_Demand, 'ES_Demand',[], exact=True)
+      message: ES_Demand data for {demand_sector},{energy_service} should have valid data for all specified geographics level
+    - code: check_consumer_validity(ES_Demand, 'ES_Demand',[], demand_sector=demand_sector, exact=True)
+      message: ES_Demand data for {demand_sector},{energy_service} should have valid data for all specified consumer level
+    - code: (ES_Demand[[c for c in ES_Demand.columns if service_tech in c]]<0).sum().sum()==0
+      message: Demand can not be negative for {service_tech}_ES_Demand in {demand_sector}/{energy_service}
+
+      
+ResidualDemand:
+  filetype: csv
+  loader: rumi.io.demand.get_ResidualDemand
+  nested: $demand_sector
+  columns:
+    EnergyService:
+      type: str
+    EnergyCarrier:
+      type: str
+    ConsumerType1:
+      type: str
+    ConsumerType2:
+      type: str
+      optional: True
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    Season:
+      type: str
+      optional: True
+    DayType:
+      type: str
+      optional: True
+    DaySlice:
+      type: str
+      optional: True
+    ResidualShare:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+      
+  validation:
+    - code: check_time_validity(ResidualDemand, 'ResidualDemand',['EnergyService','EnergyCarrier'], exact=True)
+      message: ResidualDemand data for {demand_sector} should have valid data for all specified time columns
+    - code: check_geographic_validity(ResidualDemand, 'ResidualDemand',['EnergyService','EnergyCarrier'], exact=True)
+      message: ResidualDemand data for {demand_sector} should have valid data for all specified geographics level
+    - code: check_consumer_validity(ResidualDemand, 'ResidualDemand',['EnergyService','EnergyCarrier'], demand_sector=demand_sector, exact=True)
+      message: ResidualDemand data for {demand_sector} should have valid data for all specified consumer level
+
+global_validation:
+  module: rumi.io.demand
+  include:
+    - Common
+  validation:
+    - code: (DS_ES_ST_Map  and  len(get_bottomup_ds_es())>0) or (not DS_ES_ST_Map  and  len(get_bottomup_ds_es())==0)
+      message: If BOTTOMUP services are given then DS_ES_ST_Map must be given and vice versa
+    - code: (isinstance(ST_Info, pd.DataFrame)  and  len(get_bottomup_ds_es())>0) or (not isinstance(ST_Info, pd.DataFrame)  and  len(get_bottomup_ds_es())==0)
+      message: If BOTTOMUP services are given then ST_Info must be given and vice versa
+    - code: (isinstance(DS_ST_Granularity_Map, pd.DataFrame)  and  len(get_bottomup_ds_es())>0) or (not isinstance(DS_ST_Granularity_Map, pd.DataFrame)  and  len(get_bottomup_ds_es())==0)
+      message: If BOTTOMUP services are given then DS_ST_Granularity_Map must be given and vice versa
+
+    - code: (DS_ES_EC_Map  and  len(get_nonbottomup_ds_es())>0) or (not DS_ES_EC_Map  and  len(get_nonbottomup_ds_es())==0)
+      message: If non BOTTOMUP services are given then DS_ES_EC_Map must be given and vice versa 
+  
+    # these can not be moved to local because these functions
+    # do not work on individual file, they work on group of files
+    - code: existence_demand_parameter('BaseYearDemand')
+      message: BaseYearDemand is missing or invalid
+    - code: existence_demand_parameter('DemandElasticity')
+      message: DemandElasticity is missing or invalid
+    - code: existence_demand_parameter('NumConsumers')
+      message: NumConsumers is missing or invalid
+    - code: existence_demand_parameter('ResidualDemand')
+      message: ResidualDemand is missing or invalid
+    - code: existence_demand_parameter('ST_Efficiency')
+      message: ST_Efficiency is missing or invalid
+    - code: existence_demand_parameter('ExtraneousDemand')
+      message: ExtraneousDemand is missing or invalid
+    - code: existence_demand_energy_service_parameter('EfficiencyLevelSplit')
+      message: EfficiencyLevelSplit is missing or invalid
+    - code: existence_demand_energy_service_parameter('NumInstances')
+      message: NumInstances is missing or invalid
+    - code: check_ES_Demand_columns()
+      message: Demand columns in ES_Demand parameter are incorrect
+    - code: existence_demand_energy_service_parameter('ES_Demand')
+      message: ES_Demand is missing or invalid
+    - code: existence_demand_energy_service_parameter('Penetration')
+      message: Penetration is missing or invalid
+
+    # these can not be moved to local because these functions
+    # do not work on individual file, they work on group of files
+    - code: check_demand_granularity('BaseYearDemand', True, True, True)
+      message: Invalid granularity specified for BaseYearDemand.
+    - code: check_demand_granularity('DemandElasticity', True, True, False)
+      message: Invalid granularity specified for DemandElasticity.
+    - code: check_numconsumers_granularity()
+      message: Invalid granularity specified for NumConsumers.
+    - code: check_demand_granularity('ResidualDemand', True, True, True, utilities.check_granularity_per_entity)
+      message: Invalid granularity specified for ResidualDemand.
+    - code: check_demand_granularity('ExtraneousDemand', True, True, True)
+      message: Invalid granularity specified for ExtraneousDemand
+
+    # these can not be moved to local because these functions
+    # do not work on individual file, they work on group of files
+    - code: check_EfficiencyLevelSplit_granularity()
+      message: Invalid granularity specified for EfficiencyLevelSplit
+      # TODO
+      # this parameter has to check granularity equal to given in DS_ST_Granularity_Map
+      # Currently it is doing finer or equal which is wrong.
+    - code: check_NumInstances_granularity()
+      message: Invalid granularity specified for NumInstances
+    - code: check_ES_Demand_granularity()
+      message: Invalid granularity specified for ES_Demand
+    - code: check_Penetration_granularity()
+      message: Invalid granularity specified for Penetration
+    - code: check_basedemand_elasticity_gran()
+      message: Geographic granularity of BaseYearDemand and DemandElasticity is different, check log for more details.
+
+
+    - code: check_total_penetration()
+      message: For a given <consumer-type, geography, time> combination, the sum of Penetrations across all applicable STs should be less than or equal to 1
+    

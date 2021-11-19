@@ -1,0 +1,72 @@
+
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+name: Upload Release Asset
+
+jobs:
+  build:
+    name: Upload Release Asset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      - name: Create Build
+        id: create_build
+        run: |
+          sudo apt-get install pandoc
+          pip install -U pip Sphinx
+          pip install .
+          python setup.py sdist
+
+      - name: Extract Path
+        id: asset_path
+        run: echo ::set-output name=PATH::$(echo $GITHUB_REF | cut -d / -f 3|sed -e 's/v\(.*\)/.\/dist\/rumi-\1.tar.gz/')
+
+      - name: Extract Name
+        id: asset_name
+        run: echo ::set-output name=NAME::$(echo $GITHUB_REF | cut -d / -f 3|sed -e 's/\(.*\)/rumi-\1.tar.gz/')
+
+      - name: Extract Doc Name
+        id: asset_doc_name
+        run: echo ::set-output name=NAME::$(echo $GITHUB_REF | cut -d / -f 3|sed -e 's/\(.*\)/Docs-rumi-\1.zip/')
+
+      - name: Upload Package Asset
+        id: upload-package-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ${{ steps.asset_path.outputs.PATH }}
+          asset_name: ${{ steps.asset_name.outputs.NAME }}
+          asset_content_type: application/gzip
+
+      - name: Create Docs
+        id: create_docs
+        run: |
+          pandoc README.md --from markdown --to rst -s -o Docs\source\startguide.rst && cd Docs && make html && cp -r build/html . && cd - && zip -r Docs.zip Docs/html Docs/*.pdf
+        
+      - name: Upload Docs Asset
+        id: upload-docs-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./Docs.zip
+          asset_name: ${{ steps.asset_doc_name.outputs.NAME }}
+          asset_content_type: application/zip

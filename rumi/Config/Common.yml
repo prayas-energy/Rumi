@@ -1,0 +1,434 @@
+# Copyright 2021 Prayas Energy Group(https://www.prayaspune.org/peg/)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+ModelPeriod:
+  filetype: csv
+  axis : column
+  columns:
+    StartYear:
+      type: int
+      min: 2000
+      max: 2100
+    EndYear:
+      type: int
+      min: 2000
+      max: 2100
+  validation:
+    - code: len(ModelPeriod)==1
+      message: ModelPeriod can have only one row
+    - code: all(EndYear >= StartYear)
+      message: In ModelPeriod, EndYear has to be greater than or equal to StartYear
+
+
+Seasons:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    Season:
+      type: str
+    StartMonth:
+      type: int
+      min: 1
+      max: 12
+    StartDate:
+      type: int
+      min: 1
+      max: 31
+  validation:
+    - code: circular(StartMonth, range(1,13))
+      message: Invalid StartMonth for Seasons, check Seasons carefully
+    - code: valid_date(StartMonth,StartDate)
+      message: Month and date specified in Seasons has invalid date
+    - code: unique(Season)
+      message: Season names should not be repeated
+    - code: sum_of_durations(Seasons) == 365
+      message: The sum of the durations of all the seasons should be equal to 365
+    
+
+DayTypes:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    DayType:
+      type: str
+    Weight:
+      type: float
+      min: 0
+      max: 1
+  validation:
+    - code: sum(Weight)==1
+      message: Weight in DayTypes should total to 1
+    - code: all(Weight > 0)
+      message: Weight specified in DayTypes should be greater than 0
+    - code: unique(DayType)
+      message: DayType names should not be repeated
+
+DaySlices:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    DaySlice:
+      type: str
+    StartHour:
+      type: int
+      min: 0
+      max: 23
+  validation:
+    - code: circular(StartHour, range(0,24))
+      message: In DaySlices, StartHour should be a valid sequence of hours
+    - code: unique(DaySlice)
+      message: DaySlice names should not be repeated
+    - code: sum(dayslice_size().values())==24
+      message: Total hours in all dayslices should sum to 24 hours
+    
+#nation
+ModelGeography:
+  filetype: csv
+  axis: row
+  noheader: True
+  validation:
+    - code: isinstance(ModelGeography, str)
+      message: ModelGeography should be single line text
+
+#regions
+SubGeography1:
+  filetype: csv
+  axis: row
+  noheader: True
+  list: True
+  optional: True
+  validation:
+    - code: len(SubGeography1)>=1
+      message: There should be more than one region in SubGeography1
+    - code: unique(SubGeography1)
+      message: Regions specified in SubGeography1 should be unique
+
+      
+#states
+SubGeography2:
+  filetype: csv
+  axis: row
+  noheader: True
+  optional: True
+  map: True
+  dependencies:
+    - SubGeography1
+  validation:
+    # we have no way to check this! if first column repeats, then last occurence will be considered. do we add this to specifications?
+    #- code: unique(SubGeography2.keys())
+    #  message: Regions specified in first column of SubGeography2 should be unique
+    - code: one_to_one(x=SubGeography2.keys(), y=SubGeography1)
+      message: All Entries in first column of SubGeography2 should match exactly with entries in SubGeography1
+    - code: unique(concat(*[v for v in SubGeography2.values()]))
+      message: In SubGeography2, components across all SubGeography1 regions should be unique
+    - code: all([len(v)>=1 for v in SubGeography2.values()])
+      message: In Subgeography2, there should be atleast one component within a given SubGeography1 region
+
+
+
+#Districts
+SubGeography3:
+  filetype: csv
+  axis: row
+  noheader: True
+  optional: True
+  map: True
+  dependencies:
+    - SubGeography2
+  validation:
+    # we have no way to check this! if first column repeats, then last occurence will be considered. do we add this to specifications?
+    #- code: unique(SubGeography3.keys())
+    #  message: Regions specified in first column of SubGeography3 should be unique
+    - code: one_to_one(x=SubGeography3.keys(), y=concat(*[v for v in SubGeography2.values()]))
+      message: All entries in first column of SubGeography3 should match exactly with component entries in SubGeography2
+    - code: all([unique(v) for v in SubGeography3.values()])
+      message: In SubGeography3, all components within a given SubGeography2 component should be unique
+    - code: all([len(v)>=1 for v in SubGeography3.values()])
+      message: In Subgeography3, there should be atleast one component within a given SubGeography2 component
+    
+  
+PhysicalPrimaryCarriers:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    EnergyCarrier:
+      type: str
+    BalancingArea:
+      type: str
+    BalancingTime:
+      type: str
+    PhysicalUnit:
+      type: str
+    EnergyUnit:
+      type: str
+    DomEnergyDensity:
+      type: float
+    ImpEnergyDensity:
+      type: float
+  validation:
+    - code: unique(EnergyCarrier)
+      message: EnergyCarrier column in PhysicalPrimaryCarriers should be unique names
+    - code: x_in_y(x=BalancingArea, y=utilities.get_valid_geographic_levels())
+      message: BalancingArea in PhysicalPrimaryCarriers can only be from geographic levels defined in Common geographic parameters i.e. {utilities.get_valid_geographic_levels()}
+    - code: x_in_y(x=BalancingTime, y=utilities.get_valid_time_levels())
+      message: BalancingTime in PhysicalPrimaryCarriers can only be from time levels defined in Common time parameters i.e. {utilities.get_valid_time_levels()}
+    - code: all(DomEnergyDensity > 0)
+      message: DomEnergyDensity in PhysicalPrimaryCarriers should be a positive real number
+    - code: all(ImpEnergyDensity > 0)
+      message: DomEnergyDensity on PhysicalPrimaryCarriers should be a positive real number
+
+NonPhysicalPrimaryCarriers:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    EnergyCarrier:
+      type: str
+  validation:
+    - code: unique(EnergyCarrier)
+      message: EnergyCarrier column in NonPhysicalPrimaryCarriers should be unique names
+
+  
+PhysicalDerivedCarriers:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    EnergyCarrier:
+      type: str
+    BalancingArea:
+      type: str
+    BalancingTime:
+      type: str
+    EnergyUnit:
+      type: str
+    PhysicalUnit:
+      type: str
+    EnergyDensity:
+      type: float
+  validation:
+    - code: unique(EnergyCarrier)
+      message: EnergyCarrier column in PhysicalDerivedCarriers should be unique names
+    - code: x_in_y(x=BalancingArea, y=utilities.get_valid_geographic_levels())
+      message: BalancingArea in PhysicalDerivedCarriers can only be from geographic levels defined in Common geographic parameters i.e. {utilities.get_valid_geographic_levels()}
+    - code: x_in_y(x=BalancingTime, y=utilities.get_valid_time_levels())
+      message: BalancingTime in PhysicalDerivedCarriers can only be from time levels defined in Common time parameters i.e. {utilities.get_valid_time_levels()}
+    - code: all(EnergyDensity > 0)
+      message: EnergyDensity in PhysicalDerivedcarriers should be positive real number
+
+
+
+NonPhysicalDerivedCarriers:
+  filetype: csv
+  axis: column
+  optional: True
+  columns:
+    EnergyCarrier:
+      type: str
+    BalancingArea:
+      type: str
+    BalancingTime:
+      type: str
+    EnergyUnit:
+      type: str
+  validation:
+    - code: unique(EnergyCarrier)
+      message: EnergyCarrier column in NonPhysicalDerivedCarriers should be unique names
+    - code: x_in_y(x=BalancingArea, y=utilities.get_valid_geographic_levels())
+      message: BalancingArea in NonPhysicalDerivedCarriers can only be from geographic levels defined in Common geographic parameters i.e. {utilities.get_valid_geographic_levels()}
+    - code: x_in_y(x=BalancingTime, y=utilities.get_valid_time_levels())
+      message: BalancingTime in NonPhysicalDerivedCarriers can only be from time levels defined in Common time parameters i.e. {utilities.get_valid_time_levels()}
+
+
+PhysicalCarrierEmissions:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    EnergyCarrier:
+      type: str
+    EmissionType:
+      type: str
+    DomEmissionFactor:
+      type: float
+    ImpEmissionFactor:
+      type: float
+  dependencies:
+    - EmissionTypes
+    - PhysicalPrimaryCarriers
+    - PhysicalDerivedCarriers
+  validation:
+    - code: x_in_y(x=EnergyCarrier, y=concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'),get_col(PhysicalDerivedCarriers,'EnergyCarrier')))
+      message: EnergyCarrier in PhysicalCarrierEmissions should be from PhysicalPrimaryCarriers or PhysicalDerivedCarriers
+    - code: all(DomEmissionFactor > 0)
+      message: DomEmissionFactor in PhysicalCarrierEmissions should be positive real number
+    - code: all(ImpEmissionFactor > 0)
+      message: ImpEmissionFactor in PhysicalCarrierEmissions should be positive real number
+    - code: x_in_y(x=PhysicalCarrierEmissions.EmissionType, y=get_col(EmissionTypes,'EmissionType'))
+      message: In PhysicalCarrierEmissions, EmissionType should be one of the defined emission types from EmissionTypes
+    - code: unique(list(zip(EnergyCarrier.values, EmissionType.values)))
+      message: In PhysicalCarrierEmissions combination of EnergyCarrier and EmissionType can not be repeated
+
+      
+UnmetDemandValue:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    EnergyCarrier:
+      type: str
+    Year:
+      type: int
+    UnmetDemandValue:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+    - PhysicalPrimaryCarriers
+    - PhysicalDerivedCarriers
+    - NonPhysicalDerivedCarriers
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: x_in_y(Year, range(ModelPeriod.StartYear.iloc[0], ModelPeriod.EndYear.iloc[0]+1))
+      message: UnmetDemandValue data should have years in ModelPeriod range
+    - code: x_in_y(x=UnmetDemandValue.EnergyCarrier, y=concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
+      message: Carrier specified in UnmetDemandValue should be from PhysicalPrimaryCarriers, PhysicalPrimaryCarriers, NonPhysicalDerived Carriers
+    - code: unique(list(zip(EnergyCarrier, Year)))
+      message: In UnmetDemandValue combination of EnergyCarrier and Year can not be repeated 
+
+
+CurrencyUnit:
+  filetype: csv
+  axis: rows
+  noheader: True
+  validation:
+    - code: isinstance(CurrencyUnit,str)
+      message: CurrencyUnit must be single line text
+
+      
+EmissionTypes:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    EmissionType:
+      type: str
+    EmissionUnit:
+      type: str
+  validation:
+    - code: unique(EmissionType)
+      message: Values of EmissionType can not repeat
+    
+Demographics:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    Population:
+      type: int
+      min: 0
+    NumHouseholds:
+      type: int
+      min: 0
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: one_to_one(Year, range(ModelPeriod.StartYear.iloc[0], ModelPeriod.EndYear.iloc[0]+1))
+      message: Demographics data should have data for all years in ModelPeriod range
+    - code: valid_geography(Demographics)
+      message: Geography specified in Demographics is invalid or incomplete
+
+
+GDP:
+  filetype: csv
+  axis: row
+  optional: True
+  columns:
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    GDP:
+      type: float
+      min: 0
+    ModelGeography:
+      type: str
+    SubGeography1:
+      type: str
+      optional: True
+    SubGeography2:
+      type: str
+      optional: True
+    SubGeography3:
+      type: str
+      optional: True
+  dependencies:
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]-1}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: one_to_one(Year, range(ModelPeriod.StartYear.iloc[0]-1, ModelPeriod.EndYear.iloc[0]+1))
+      message: GDP should have data for all years starting from one year before ModelPeriod
+    - code: valid_geography(GDP)
+      message: Geography specified in Demographics is invalid or incomplete
+
+    
+global_validation:
+  module: rumi.io.common
+  namespace:
+    AllEnergyCarriers: concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'), get_col(NonPhysicalPrimaryCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier'))
+    AllDerivedCarriers: concat(get_col(NonPhysicalDerivedCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'))
+    PPEC: isinstance(PhysicalPrimaryCarriers, pd.DataFrame)
+    NPPEC: isinstance(NonPhysicalPrimaryCarriers, pd.DataFrame)
+    DEC: isinstance(PhysicalDerivedCarriers,pd.DataFrame) or isinstance(NonPhysicalDerivedCarriers,pd.DataFrame)
+  validation:
+    - code: unique(AllEnergyCarriers)
+      message: Energy Carriers should have unique names
+    - code: PPEC or NPPEC and DEC
+      message: Either PhysicalPrimaryCarriers should be specfied or both NonPhysicalPrimaryCarriers and Derived Energy Carriers should be specified
+    - code: not (isinstance(PhysicalCarrierEmissions, pd.DataFrame) and not isinstance(EmissionTypes, pd.DataFrame))
+      message: If PhysicalCarrierEmissions is given, EmissionTypes has to be given
+    - code: not (isinstance(DayTypes, pd.DataFrame) and not isinstance(Seasons, pd.DataFrame))
+      message: If DayTypes is given, Seasons has to be given
+    - code: not (isinstance(DaySlices, pd.DataFrame) and not isinstance(DayTypes, pd.DataFrame))
+      message: If DaySlices is given, DayTypes has to be given
+    - code: not (SubGeography2 and not SubGeography1)
+      message: If SubGeography2 is given, SubGeography1 has to be given
+    - code: not (SubGeography3 and not SubGeography2)
+      message: If SubGeography3 is given, SubGeography2 has to be given
+ 
