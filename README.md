@@ -33,7 +33,7 @@ This short guide is a walk through of the commands to access Rumi functionality.
    environments. Specifically, the following commands can be used to create
    and activate a virtual environment:
    ```
-    conda create VENVNAME
+    conda create -n VENVNAME
     conda activate VENVNAME
    ```
    where `VENVNAME` is the name of the virtual environment.
@@ -77,6 +77,17 @@ This short guide is a walk through of the commands to access Rumi functionality.
    ```
     pip install -e .
    ```
+      Note:  If you encounter "pip" errors while running it through Anaconda, please try the following: 
+
+      a)  `conda deactivate VENVNAME`
+
+      b)  `conda create -n VENVNAME python=x.y.z`
+
+      where `x.y.z` is the latest Python version (ex: `3.7.4`)
+      
+      c)  `conda activate VENVNAME`
+
+
 
 2. To test the installation, run the following command in the repository
    base directory:
