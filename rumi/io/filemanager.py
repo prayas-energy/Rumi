@@ -148,9 +148,9 @@ def find_filepath(name, subfolder=None):
                                         scenario_location())
     filename_ = filename(name)
     if subfolder:
-        filepath = os.path.join(prefix, possible_path, subfolder, filename_)
+        filepath = os.path.join(possible_path, subfolder, filename_)
     else:
-        filepath = os.path.join(prefix, possible_path, filename_)
+        filepath = os.path.join(possible_path, filename_)
     if os.path.exists(filepath):
         return filepath
     else:

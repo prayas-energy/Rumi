@@ -15,7 +15,6 @@
 from __future__ import division
 
 import sys
-import psutil
 import shutil
 import typing
 import logging
@@ -44,7 +43,7 @@ logging.basicConfig(filename = LOGFILE_NAME, format = LOGFORMAT_STR,
                     filemode='w', level = logging.INFO)
 logger = logging.getLogger("rumi.processing.supply")
 
-logger.info("Entry: Memory used %.1f%%", psutil.virtual_memory().percent)
+logger.info("Entry")
 
                         #########################################
 #####################           Command line arguments          #############
@@ -3165,12 +3164,12 @@ model.imp_stor_discharged_from_constraint = Constraint(model.EC_BTCONC_BA,
 
 if isinstance(model, AbstractModel):
     print("Creating instance ...")
-    logger.info("Before create instance: Memory used %.1f%%", psutil.virtual_memory().percent)
+    logger.info("Before create instance")
     instance = model.create_instance()
-    logger.info("After create instance: Memory used %.1f%%", psutil.virtual_memory().percent)
+    logger.info("After create instance")
     print("Instance created")
 else:
-    logger.info("Equating instance to model: Memory used %.1f%%", psutil.virtual_memory().percent)
+    logger.info("Equating instance to model")
     instance = model
 
 '''    DEBUG prints to console - hence commented out 
@@ -3201,7 +3200,7 @@ else:
 for option_name, option_value in solver_options_dict.items():
     opt.options[option_name] = option_value
 
-logger.info("Before calling solver: Memory used %.1f%%", psutil.virtual_memory().percent)
+logger.info("Before calling solver")
 
 if (symbolic_solver_labels):
     print("Creating LP file (with symbolic solver labels) and calling solver")
@@ -3210,8 +3209,8 @@ else:
     print("Creating LP file and calling solver")
     results = opt.solve(instance, tee = True)
 
-logger.info("After calling solver: Memory used %.1f%% (solver results summary below)\n%s",
-            psutil.virtual_memory().percent, str(results.solver))
+logger.info("After calling solver (solver results summary below)\n%s",
+            str(results.solver))
 
 print("\nReturned from solver; solver results summary printed below")
 print(str(results.solver))
@@ -3221,7 +3220,7 @@ print("The solver returned the status: " + str(results.solver.status))
 #    (results.solver.termination_condition != TerminationCondition.optimal)):
 if (results.solver.status != SolverStatus.ok):
     logger.info("The solver returned a status of: " + str(results.solver.status))
-    logger.info("Exit: Memory used %.1f%%", psutil.virtual_memory().percent)
+    logger.info("Exit")
     sys.exit(1)
 
 
@@ -3330,7 +3329,7 @@ def CreateParamDF(Param):
 
     return df
 
-logger.info("Starting creation of dataframes per parameter: Memory used %.1f%%", psutil.virtual_memory().percent)
+logger.info("Starting creation of dataframes per parameter")
 print("Creating dataframes per parameter and writing to CSV files ...")
 
 for param in instance.component_objects(Param, active = True):
@@ -3344,7 +3343,7 @@ for param in instance.component_objects(Param, active = True):
  
     del df
 
-logger.info("Starting creation of dataframes per variable: Memory used %.1f%%", psutil.virtual_memory().percent)
+logger.info("Starting creation of dataframes per variable")
 print("Creating dataframes per variable and writing to CSV files ...")
 
 for var in instance.component_objects(Var, active = True):
@@ -3366,7 +3365,7 @@ for var in instance.component_objects(Var, active = True):
 
     del df
 
-logger.info("Exit: Memory used %.1f%%", psutil.virtual_memory().percent)
+logger.info("Exit")
 
 logging.shutdown()
 shutil.copy(LOGFILE_NAME, output_folder_path)
