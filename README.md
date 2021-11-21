@@ -15,7 +15,7 @@ The input data used to run the demand and supply modules of Rumi is not included
 in the platform, and hence needs to be provided when running the modules.
 
 The Rumi platform is licensed under the Apache License Version 2.0. For the
-complete license text, refer to the [`LICENSE`](/LICENSE) file in the root directory of the
+complete license text, refer to the [`LICENSE`](https://github.com/prayas-energy/Rumi/blob/main/LICENSE) file in the root directory of the
 Rumi platform repository.
 
 Please contact Prayas (Energy Group) at energy.model@prayaspune.org for any
@@ -77,14 +77,14 @@ This short guide is a walk through of the commands to access Rumi functionality.
    ```
     pip install -e .
    ```
-      Note:  If you encounter "pip" errors while running it through Anaconda, please try the following: 
+      Note:  If you encounter "pip" errors while running it through Anaconda, please try the following:
 
       a)  `conda deactivate VENVNAME`
 
       b)  `conda create -n VENVNAME python=x.y.z`
 
       where `x.y.z` is the latest Python version (ex: `3.7.4`)
-      
+
       c)  `conda activate VENVNAME`
 
 
@@ -102,16 +102,16 @@ This short guide is a walk through of the commands to access Rumi functionality.
    supported by Pyomo, such as CBC, CPLEX or Gurobi. Hence, a solver needs to be
    installed, and the solver name (`solver_name`) and, if needed, the path to the
    solver executable (`solver_executable`) need to be mentioned in the
-   [`rumi/Config/Config.yml`](/rumi/Config/Config.yml) file.
+   [`rumi/Config/Config.yml`](https://github.com/prayas-energy/Rumi/blob/main/rumi/Config/Config.yml) file.
 
 4. For more details regarding configuring the Rumi installation, refer to the
-   rumi-overview.pdf document in the [`Docs`](/Docs) folder.
+   rumi-overview.pdf document in the [`Docs`](https://github.com/prayas-energy/Rumi/blob/main/Docs) folder.
 
 ### Checking data validity
 
 A model developed for the Rumi platform (also referred to as a Rumi model instance)
 consists of the input data as per Rumi specifications, which are detailed in the
-documents in the [`Docs`](/Docs) folder. This instance data can be validated without
+documents in the [`Docs`](https://github.com/prayas-energy/Rumi/blob/main/Docs) folder. This instance data can be validated without
 actually running the model using the following command in the virtual
 environment where Rumi is installed:
 
@@ -128,12 +128,12 @@ Following are the different arguments accepted by the validation module:
 ```
  rumi_validate --help
  Usage: rumi_validate [OPTIONS]
- 
+
    Command line interface for data validation.
- 
+
   -m/--model_instance_path and -s/--scenario are compulsory
    named arguments. While others are optional.
- 
+
  Options:
    -p, --param_type TEXT           Parameter type to validate. Can be one of
                                    Common, Demand or Supply. (default: all)
@@ -163,15 +163,15 @@ Following help message lists the entire set of arguments:
 ```
  rumi_demand --help
  Usage: rumi_demand [OPTIONS]
- 
+
    Command line interface for processing demand inputs. If demand_sector,
    energy_service, energy_carrier options are not provided, then demand is
    processed for all demand_sector, energy_service and energy_carrier
    combinations.
- 
+
    -m/--model_instance_path and -s/--scenario are mandatory arguments, while the
    others are optional.
- 
+
  Options:
    -m, --model_instance_path TEXT  Path of the model instance root folder
    -s, --scenario TEXT             Name of the scenario within specified model
@@ -221,13 +221,13 @@ Rumi is installed:
  rumi_supply --help
  usage: rumi_supply [-h] [-o OUTPUT_FOLDER] -m
                     MODEL_INSTANCE_PATH -s SCENARIO
- 
+
  Supply processing for the given model
- 
+
  mandatory arguments:
    -m, --model_instance_path TEXT   Path of the model instance top-level folder
    -s, --scenario TEXT              Name of the scenario within specified model
- 
+
  optional arguments:
    -h, --help                       Show this help message and exit
    -o, --output_folder TEXT         Path of the output folder
