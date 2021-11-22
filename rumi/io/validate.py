@@ -44,7 +44,7 @@ def rumi_validate(param_type: str,
 
 @click.command()
 @click.option("-p", "--param_type",
-              help="Parameter type to validate. Can be one of Common, Demand or Supply. (default: all)")
+              help="Parameter type to validate. Can be one of Common, Demand or Supply.")
 @click.option("-m", "--model_instance_path",
               help="Path where the model instance is located")
 @click.option("-s", "--scenario",
@@ -58,7 +58,7 @@ def _main(param_type: str,
           logger_level: str):
     """Command line interface for data validation.
 
-    -m/--model_instance_path and -s/--scenario are compulsory
+    -m/--model_instance_path, -s/--scenario and -p/--param_type are compulsory
     named arguments. While others are optional.
     """
     rumi_validate(param_type=param_type,
