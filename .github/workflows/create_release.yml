@@ -27,7 +27,7 @@ jobs:
       - name: Create Build
         id: create_build
         run: |
-          sudo apt-get install pandoc
+          #sudo apt-get install pandoc
           pip install -U pip Sphinx
           pip install .
           python setup.py sdist
@@ -58,7 +58,8 @@ jobs:
       - name: Create Docs
         id: create_docs
         run: |
-          pandoc README.md --from markdown --to rst -s -o Docs\source\startguide.rst && cd Docs && make html && cp -r build/html . && cd - && zip -r Docs.zip Docs/html Docs/*.pdf
+          #pandoc README.md --from markdown --to rst -s -o Docs\source\startguide.rst &&
+          cd Docs && make html && cp -r build/html . && cd - && zip -r Docs.zip Docs/html Docs/*.pdf
         
       - name: Upload Docs Asset
         id: upload-docs-asset 
