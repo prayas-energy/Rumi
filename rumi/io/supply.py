@@ -32,7 +32,7 @@ def load_param(param_name, subfolder):
     """Loader function to be used by yaml framework. do not use this
     directly.
     """
-    filepath = find_custom_path(param_name, subfolder)
+    filepath = filemanager.find_filepath(param_name, subfolder)
     logger.debug(f"Reading {param_name} from file {filepath}")
     df = loaders.read_csv(param_name, filepath)
     return df
@@ -49,6 +49,8 @@ def get_filtered_parameter(param_name):
 
     """
     param_data_ = loaders.get_parameter(param_name)
+    if not isinstance(param_data_, pd.DataFrame) and param_data_ == None:
+        return param_data_
     original_order = [c for c in param_data_.columns]
     param_data = utilities.filter_empty(param_data_)  # for test data
     specs = filemanager.supply_specs()
@@ -71,6 +73,8 @@ def get_filtered_parameter(param_name):
 
 def preserve_column_order(dataframe, original_order):
     class DummyDFColumns:
+        """A class to simulate df.columns from pa.DataFrame
+        """
 
         def __init__(self, cols):
             self.columns = list(cols)
@@ -304,26 +308,6 @@ def group_by_geographic(d, balancing_area, superset_cols):
         d[c] = pd.Series([""]*rows, dtype=str, name=c)
 
     return d[superset_cols + [c for c in d.columns if c not in superset_cols]]
-
-
-def find_custom_path(param_name, subfolder):
-    """find actual location of data in case some data lies in scenario
-    """
-    prefix = config.get_config_value("model_instance_path")
-    root = os.path.join(filemanager.find_global_location("Supply"),
-                        "Supply",
-                        "Parameters")
-    global_path = os.path.join(root, subfolder)
-    possible_path = global_path.replace("Global Data",
-                                        filemanager.scenario_location())
-
-    specs = filemanager.supply_specs()[param_name]
-    filename_ = ".".join([param_name, specs['filetype']])
-    filepath = os.path.join(prefix, possible_path, filename_)
-    if os.path.exists(filepath):
-        return filepath
-    else:
-        return os.path.join(prefix, global_path, filename_)
 
 
 def find_C_G_columns(data):

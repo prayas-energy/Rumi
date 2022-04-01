@@ -228,7 +228,7 @@ PhysicalDerivedCarriers:
     - code: x_in_y(x=BalancingTime, y=utilities.get_valid_time_levels())
       message: BalancingTime in PhysicalDerivedCarriers can only be from time levels defined in Common time parameters i.e. {utilities.get_valid_time_levels()}
     - code: all(EnergyDensity > 0)
-      message: EnergyDensity in PhysicalDerivedcarriers should be positive real number
+      message: EnergyDensity in PhysicalDerivedcarriers should be a positive real number
 
 
 
@@ -265,8 +265,10 @@ PhysicalCarrierEmissions:
       type: str
     DomEmissionFactor:
       type: float
+      min: 0
     ImpEmissionFactor:
       type: float
+      min: 0
   dependencies:
     - EmissionTypes
     - PhysicalPrimaryCarriers
@@ -274,10 +276,6 @@ PhysicalCarrierEmissions:
   validation:
     - code: x_in_y(x=EnergyCarrier, y=concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'),get_col(PhysicalDerivedCarriers,'EnergyCarrier')))
       message: EnergyCarrier in PhysicalCarrierEmissions should be from PhysicalPrimaryCarriers or PhysicalDerivedCarriers
-    - code: all(DomEmissionFactor > 0)
-      message: DomEmissionFactor in PhysicalCarrierEmissions should be positive real number
-    - code: all(ImpEmissionFactor > 0)
-      message: ImpEmissionFactor in PhysicalCarrierEmissions should be positive real number
     - code: x_in_y(x=PhysicalCarrierEmissions.EmissionType, y=get_col(EmissionTypes,'EmissionType'))
       message: In PhysicalCarrierEmissions, EmissionType should be one of the defined emission types from EmissionTypes
     - code: unique(list(zip(EnergyCarrier.values, EmissionType.values)))

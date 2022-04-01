@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""function repository for loaders and validations. 
+"""function repository for loaders and validations.
 this module can depend only on python modules
 """
 import pandas as pd
@@ -92,10 +92,10 @@ def combined_key_subset(cols, df: pd.DataFrame):
        ----------
 
           cols: list(pd.Series)
-            Collection of series of type str 
+            Collection of series of type str
 
           df: pd.DataFrame
-            DataFrame from which  
+            DataFrame from which
 
     """
 
@@ -146,3 +146,33 @@ def get_col(data, name):
         return []
     else:
         return data[name]
+
+
+def override_dataframe(dataframe1, dataframe2, index_cols):
+    """override data from dataframe2 in dataframe1 using
+    index_cols as a key to compare. 
+    """
+    dx = dataframe1.to_dict(orient="records")
+    dy = dataframe2.to_dict(orient="records")
+    ddx = {tuple(r[c] for c in index_cols): r for r in dx}
+    ddy = {tuple(r[c] for c in index_cols): r for r in dy}
+
+    ddx.update(ddy)
+    return pd.DataFrame(ddx.values())
+
+
+def expand_with(dataf, expansion_col, indexcols):
+    """ expands dataframe with contents of expansion_col. group formed by indexcols
+    is repeated for each item in expansion_col. Final dataframe is concatenated
+    dataframe of those repeated groups.
+    """
+    df = dataf.groupby(indexcols)
+
+    dfs = []
+    for item in df.groups.keys():
+        group = df.get_group(item)
+        d = pd.MultiIndex.from_product([group[c] for c in group.columns] +
+                                       [expansion_col]).to_frame().reset_index(drop=True)
+        dfs.append(d)
+
+    return pd.concat(dfs).reset_index(drop=True)

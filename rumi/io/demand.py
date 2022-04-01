@@ -38,6 +38,7 @@ from rumi.io.common import balancing_area, balancing_time
 from rumi.io.utilities import check_consumer_validity
 from rumi.io.utilities import check_geographic_validity
 from rumi.io.utilities import check_time_validity
+from rumi.io.multiprocessutils import execute_in_process_pool
 logger = logging.getLogger(__name__)
 
 
@@ -113,6 +114,8 @@ def get_geographic_granularity(demand_sector,
 
 
 def get_type(demand_sector, energy_service):
+    """find type of service BOTTOMUP,EXTRANEOUS,GDPELASTICITY or RESIDUAL
+    """
     DS_ES_Map = loaders.get_parameter('DS_ES_Map')
     DS_ES_Map = DS_ES_Map.set_index(['DemandSector', 'EnergyService'])
     return DS_ES_Map.loc[(demand_sector, energy_service)]['InputType']
@@ -145,6 +148,13 @@ def get_ST_Efficiency(demand_sector):
     """ST_Efficiency loader function
     """
     return get_demand_sector_parameter("ST_Efficiency",
+                                       demand_sector)
+
+
+def get_ST_EmissionDetails(demand_sector):
+    """ST_EmissionDetails loader function
+    """
+    return get_demand_sector_parameter("ST_EmissionDetails",
                                        demand_sector)
 
 
@@ -184,11 +194,12 @@ def get_ES_Demand(demand_sector,
     """loader function for parameter ES_Demand
     should not be used directly. use loaders.get_parameter instead.
     """
-    name = "_".join([service_tech, 'ES_Demand'])
+    prefix = f"{service_tech}_"
     filepath = find_custom_DS_ES_filepath(demand_sector,
                                           energy_service,
-                                          name)
-    logger.debug(f"Reading {name} from file {filepath}")
+                                          'ES_Demand',
+                                          prefix)
+    logger.debug(f"Reading {prefix}ES_Demand from file {filepath}")
     return pd.read_csv(filepath)
 
 
@@ -198,9 +209,11 @@ def get_Penetration(demand_sector,
     """loader function for parameter Penetration
     """
     for item in itertools.permutations(ST_combination):
-        prefix = constant.ST_SEPARATOR_CHAR.join(item + ('Penetration',))
+        prefix = constant.ST_SEPARATOR_CHAR.join(
+            item) + constant.ST_SEPARATOR_CHAR
         filepath = find_custom_DS_ES_filepath(demand_sector,
                                               energy_service,
+                                              'Penetration',
                                               prefix)
         logger.debug(f"Searching for file {filepath}")
         if os.path.exists(filepath):
@@ -210,7 +223,9 @@ def get_Penetration(demand_sector,
 
 def get_demand_sector_parameter(param_name,
                                 demand_sector):
-    filepath = find_custom_demand_filepath(demand_sector, param_name)
+    """loads demand sector parameter which lies inside demand_sector folder
+    """
+    filepath = find_custom_demand_path(demand_sector, param_name)
     logger.debug(f"Reading {param_name} from file {filepath}")
     cols = list(filemanager.demand_specs()[param_name]['columns'].keys())
     d = pd.read_csv(filepath)
@@ -220,55 +235,40 @@ def get_demand_sector_parameter(param_name,
 def get_DS_ES_parameter(param_name,
                         demand_sector,
                         energy_service):
+    """loads parameter which is inside demand_sector/energy_service folder
+    """
     filepath = find_custom_DS_ES_filepath(demand_sector,
                                           energy_service,
-                                          param_name)
+                                          param_name,
+                                          "")
     logger.debug(f"Reading {param_name} from file {filepath}")
     cols = list(filemanager.demand_specs()[param_name]['columns'].keys())
     d = pd.read_csv(filepath)
     return d[[c for c in cols if c in d.columns]]
 
 
-def find_custom_demand_filepath(demand_sector,
-                                name):
-    """find actual location of data in case some data lies in scenario
-    """
-    return find_custom_demand_path(demand_sector, name)
-
-
 def find_custom_DS_ES_filepath(demand_sector,
                                energy_service,
-                               name):
+                               name,
+                               prefix):
     """find actual location of data in case some data lies in scenario
     """
     return find_custom_demand_path(demand_sector,
                                    name,
-                                   energy_service)
+                                   energy_service,
+                                   prefix)
 
 
 def find_custom_demand_path(demand_sector,
                             name,
-                            energy_service=None):
+                            energy_service="",
+                            prefix=""):
     """find actual location of data in case some data lies in scenario
     """
-    prefix = config.get_config_value("model_instance_path")
-    root = os.path.join(filemanager.find_global_location("Demand"),
-                        "Demand",
-                        "Parameters")
-    if energy_service:
-        global_path = os.path.join(root, demand_sector, energy_service)
-    else:
-        global_path = os.path.join(root, demand_sector)
-
-    possible_path = global_path.replace("Global Data",
-                                        filemanager.scenario_location())
-
-    filename_ = ".".join([name, "csv"])
-    filepath = os.path.join(prefix, possible_path, filename_)
-    if os.path.exists(filepath):
-        return filepath
-    else:
-        return os.path.join(prefix, global_path, filename_)
+    return filemanager.find_filepath(name,
+                                     demand_sector,
+                                     energy_service,
+                                     fileprefix=prefix)
 
 
 def get_mapped_items(DS_ES_EC_Map):
@@ -354,6 +354,8 @@ def listcols(df):
 
 
 def check_ALL_ES(DS_ES_EC_DemandGranularity_Map):
+    """function for validation
+    """
     DS_EC_ALL = DS_ES_EC_DemandGranularity_Map.query(
         "EnergyService == 'ALL'")[['DemandSector', 'EnergyCarrier']]
     DS_EC_NOALL = DS_ES_EC_DemandGranularity_Map.query(
@@ -440,6 +442,9 @@ def ST_to_EC(ST):
 def get_service_techs(demand_sector,
                       energy_service,
                       energy_carrier):
+    """ServiceTechs for given <demand_sector,energy_service, energy_carrier>
+    combination
+    """
     DS_ES_ST_Map = loaders.get_parameter("DS_ES_ST_Map")
     ST1 = fs.flatten([row[2:] for row in DS_ES_ST_Map if row[0]
                       == demand_sector and row[1] == energy_service])
@@ -624,27 +629,34 @@ def get_ds_list(name):
 
 def existence_demand_parameter(name):
     ds = get_ds_list(name)
-    valid = True
-    for d in ds:
-        try:
-            logger.info(f"Validating {name} from {d}")
-            data = loaders.get_parameter(name,
-                                         demand_sector=d)
-            v = validate_each_demand_param(name, data, demand_sector=d)
-            valid = valid and v
-            if not v:
-                print(f"Validation failed for  {name} from {d}")
-                logger.error(f"Validatiion failed for  {name} from {d}")
-        except FileNotFoundError as fne:
-            logger.error(f"{name} for {d} is not given")
-            valid = False
-            logger.exception(fne)
-            raise DemandValidationError(fne)
-        except Exception as e:
-            logger.error(f"{name} for {d} has invalid data")
-            valid = False
-            logger.exception(e)
-            raise DemandValidationError(e)
+    ds = list(set(ds))
+    args = [(name, d) for d in ds]
+    valid = execute_in_process_pool(existence_demand_parameter_, args)
+    return all(valid)
+
+
+def existence_demand_parameter_(name, demand_sector):
+
+    try:
+        logger.info(f"Validating {name} from {demand_sector}")
+        data = loaders.get_parameter(name,
+                                     demand_sector=demand_sector)
+        valid = validate_each_demand_param(name, data,
+                                           demand_sector=demand_sector)
+
+        if not valid:
+            print(f"Validation failed for  {name} from {demand_sector}")
+            logger.error(
+                f"Validation failed for  {name} from {demand_sector}")
+    except FileNotFoundError as fne:
+        logger.error(f"{name} for {demand_sector} is not given")
+        valid = False
+        logger.exception(fne)
+    except Exception as e:
+        logger.error(f"{name} for {demand_sector} has invalid data")
+        valid = False
+        logger.exception(e)
+
     return valid
 
 
@@ -727,7 +739,8 @@ def _check_ES_Demand_columns(ds, es):
            for row in DS_ES_ST_Map if row[0] == ds and row[1] == es][0]
     filepaths = {s: find_custom_DS_ES_filepath(ds,
                                                es,
-                                               "_".join([s, 'ES_Demand'])) for s in STs}
+                                               'ES_Demand',
+                                               f"{s}_") for s in STs}
     valid = True
     for ST, path in filepaths.items():
         columns = read_header(path)
@@ -794,12 +807,38 @@ def get_data(name, ds, es):
         logger.error(f"Unknown parameter {name}")
 
 
+def validate_each_demand_param_(name, item, data, ds, es, st):
+    """encapsulation over validate_each_demand_param to catch exception
+    """
+    logger.info(f"Validating {name} from {ds},{es} for {st}")
+    try:
+        v = validate_each_demand_param(name,
+                                       data,
+                                       demand_sector=ds,
+                                       energy_service=es,
+                                       service_tech=st)
+
+        if not v:
+            logger.error(
+                f"Validaton failed for {name} from {ds},{es} for {st}")
+
+            print(
+                f"Validaton failed for {name} from {ds},{es} for {st}")
+    except Exception as e:
+        logger.exception(e)
+        logger.error(
+            f"{name} for {ds},{es},{item} has invalid data")
+        print(e)
+        v = False
+    return v
+
+
 def existence_demand_energy_service_parameter(name):
     """checks existence and basic data validation of
     EfficiencyLevelSplit,NumInstances,ES_Demand,Penetration
     """
     ds_es = get_bottomup_ds_es()
-    valid = True
+    args = []
     for ds, es in ds_es:
         try:
             data_ = get_data(name, ds, es)
@@ -813,27 +852,16 @@ def existence_demand_energy_service_parameter(name):
             if not isinstance(data, dict):
                 data = {st: data}
             for item in data:
-                logger.info(f"Validating {name} from {ds},{es} for {st}")
-                try:
-                    v = validate_each_demand_param(name,
-                                                   data[item],
-                                                   demand_sector=ds,
-                                                   energy_service=es,
-                                                   service_tech=st)
-                    valid = valid and v
-                    if not v:
-                        logger.error(
-                            f"Validaton failed for {name} from {ds},{es} for {st}")
+                args.append((name,
+                             item,
+                             data[item],
+                             ds,
+                             es,
+                             st))
 
-                        print(
-                            f"Validaton failed for {name} from {ds},{es} for {st}")
-                except Exception as e:
-                    logger.exception(e)
-                    logger.error(
-                        f"{name} for {ds},{es},{item} has invalid data")
-                    valid = False
-                    print(e)
-    return valid
+    valid = execute_in_process_pool(validate_each_demand_param_, args)
+    #valid = [validate_each_demand_param_(*item) for item in args]
+    return all(valid)
 
 
 def validate_each_demand_param(name, data, **kwargs):
@@ -900,6 +928,10 @@ def check_granularity_per_entity(d,
                                  GeographicGranularity,
                                  TimeGranularity,
                                  ConsumerGranularity=None):
+    """checks granuarity only. i.e. only columns are checked.
+    contents of columns are not validated here.
+    """
+
     geo_columns, time_columns, cons_columns = [], [], []
 
     if GeographicGranularity:
@@ -1229,7 +1261,8 @@ def check_ST_granularity():
         ds_es_ec = DS_ES_EC_DemandGranularity_Map.query(
             f"DemandSector == '{ds}' & EnergyCarrier == '{ec}'")
 
-        def _check_gran(gran, grantype='TimeGranularity', grandata=list(constant.TIME_COLUMNS.keys())):
+        def _check_gran(gran, grantype='TimeGranularity',
+                        grandata=list(constant.TIME_COLUMNS.keys())):
             gran_ = min(
                 ds_es_ec[grantype].values, key=grandata.index)
             if not coarser(gran, gran_, grandata):
@@ -1251,7 +1284,8 @@ def check_ST_granularity():
 
 
 def check_total_penetration():
-    """checks if penetrations for each ST together with which it can appear totals less than or equal to 1
+    """checks if penetrations for each ST together with which it can
+    appear totals less than or equal to 1
     """
     ds_es = get_bottomup_ds_es()
     valid = True

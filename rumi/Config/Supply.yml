@@ -622,12 +622,12 @@ ECT_EmissionDetails:
       type: int
       min: 2000
       max: 2100
-    EmType:
+    EmissionType:
       type: str
-    DomEm:
+    DomEmissionFactor:
       type: float
       min: 0
-    ImpEm:
+    ImpEmissionFactor:
       type: float
       min: 0
   dependencies:
@@ -640,12 +640,12 @@ ECT_EmissionDetails:
   validation:
     - code: x_in_y(x=EnergyConvTech,y=get_col(EnergyConvTechnologies,'EnergyConvTech'))
       message: In ECT_EmissionDetails, every entry in EnergyConvTech columns should be mentioned in EnergyConvTech column of EnergyConvTechnologies
-    - code: x_in_y(InstYear, range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1))
-      message: InstYear in ECT_EmissionDetails must be between 'one year less than ModelPeriod StartYear to ModelPeriod EndYear'
-    - code: x_in_y(EmType, EmissionTypes.EmissionType)
-      message: EmType in ECT_EmissionDetails must be from EmissionType defined in EmissionTypes in Common
-    - code: utilities.unique_across(ECT_EmissionDetails,['EnergyConvTech','InstYear','EmType'])
-      message: In ECT_EmissionDetails, combination of EnergyConvTech,InstYear and EmType must not be repeated
+    - code: all([one_to_one(ECT_EmissionDetails.query(f"EnergyConvTech=='{ECT}'")['InstYear'], range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1)) for ECT in EnergyConvTech.unique()])
+      message: Data in ECT_EmissionDetails must be  provided for each year from ModelPeriod.StartYear-1 to ModelPeriod.EndYear
+    - code: x_in_y(EmissionType, EmissionTypes.EmissionType)
+      message: EmissionType in ECT_EmissionDetails must be from EmissionType defined in EmissionTypes in Common
+    - code: utilities.unique_across(ECT_EmissionDetails,['EnergyConvTech','InstYear','EmissionType'])
+      message: In ECT_EmissionDetails, combination of EnergyConvTech,InstYear and EmissionType must not be repeated
 # if EnergyConvtechnologies is not given then should not be given.
 
       

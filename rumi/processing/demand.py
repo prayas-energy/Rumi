@@ -19,8 +19,6 @@ import os
 import shutil
 import functools
 import logging
-import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
 import click
@@ -33,14 +31,14 @@ from rumi.io import demand as demandio
 from rumi.io import functionstore as fs
 from rumi.io import common
 from rumi.io import filemanager
-from rumi.io.logger import init_logger
+from rumi.io.logger import init_logger, get_event
 from rumi.processing import utilities
 from rumi.io.utilities import groupby_time
 import rumi.io.utilities as ioutils
 from rumi.processing.utilities import get_geographic_columns_from_dataframe
 from rumi.io.common import get_geographic_columns
 from rumi.io.common import get_time_columns
-from multiprocessing import Pool
+from rumi.io.multiprocessutils import execute_in_process_pool
 logger = logging.getLogger(__name__)
 
 
@@ -916,7 +914,8 @@ def complete_run():
     if config.get_config_value("validation") == 'True':
         validate()
 
-    path = save_all_balancing()
+    compute_demand_all()
+    path = save_by_balancing_area_time()
     save_coarsest(entity_names=['DemandSector', 'EnergyCarrier'])
     save_coarsest(entity_names=['EnergyCarrier'])
     save_coarsest(entity_names=['EnergyService', 'EnergyCarrier'])
@@ -925,6 +924,9 @@ def complete_run():
 
 
 def validate():
+    """Validate Common and Demand parameters
+    returns True or False
+    """
     valid = loaders.validate_params("Common")
     if not valid:
         raise Exception("Validation failed for Common")
@@ -949,7 +951,10 @@ def save_total_num_instances(ds_es_ec):
         b.save_tot_num_instances()
 
 
-def save_all_balancing():
+def compute_demand_all():
+    """Computes demand for all combinations of demand_sector, energy_service
+    and energy_carrier
+    """
     DS_ES_EC_DemandGranularity_Map = loaders.get_parameter(
         "DS_ES_EC_DemandGranularity_Map")
 
@@ -960,8 +965,8 @@ def save_all_balancing():
         filemanager.get_output_path("Demand"), "EndUseDemandEnergy.csv")
 
     fine_cols = ['EnergyCarrier'] + \
-	            finest_balancing_area_time(DS_ES_EC_DemandGranularity_Map) + \
-				['EndUseDemandEnergy', 'TotalEnergyDemand']
+        finest_balancing_area_time(DS_ES_EC_DemandGranularity_Map) + \
+        ['EndUseDemandEnergy', 'TotalEnergyDemand']
 
     print("Computing demand")
     logger.info("Computing demand")
@@ -975,6 +980,48 @@ def save_all_balancing():
 
     logger.info("Computing total num instances")
     save_total_num_instances(ds_es_ec)
+
+
+def check_valid_ds_es_ec(demand_sector,
+                         energy_service,
+                         energy_carrier):
+    valid = True
+    DS_ES_EC_DemandGranularity_Map = loaders.get_parameter(
+        "DS_ES_EC_DemandGranularity_Map")
+    ds_es_ec = DS_ES_EC_DemandGranularity_Map.set_index(
+        ['DemandSector', 'EnergyService', 'EnergyCarrier']).index
+
+    if demand_sector not in DS_ES_EC_DemandGranularity_Map.DemandSector.unique():
+        print(f"Invalid value for demand_sector parameter, {demand_sector}")
+        valid = False
+    if energy_service not in DS_ES_EC_DemandGranularity_Map.EnergyService.unique():
+        print(f"Invalid value for energy_service parameter, {energy_service}")
+        valid = False
+    if energy_carrier not in DS_ES_EC_DemandGranularity_Map.EnergyCarrier.unique():
+        print(f"Invalid value for energy_carrier parameter, {energy_carrier}")
+        valid = False
+    if (demand_sector, energy_service, energy_carrier) not in ds_es_ec:
+        print("Invalid combination of demand_sector, energy_service, energy_carrier")
+        valid = False
+
+    return valid
+
+
+def save_by_balancing_area_time():
+    """daves demand at balancing area and balancing time in EndUseDemandEnergy.csv
+    """
+    DS_ES_EC_DemandGranularity_Map = loaders.get_parameter(
+        "DS_ES_EC_DemandGranularity_Map")
+
+    ds_es_ec = DS_ES_EC_DemandGranularity_Map.set_index(
+        ['DemandSector', 'EnergyService', 'EnergyCarrier']).index
+
+    path_all = os.path.join(
+        filemanager.get_output_path("Demand"), "EndUseDemandEnergy.csv")
+
+    fine_cols = ['EnergyCarrier'] + \
+        finest_balancing_area_time(DS_ES_EC_DemandGranularity_Map) + \
+        ['EndUseDemandEnergy', 'TotalEnergyDemand']
 
     print("Writing results by balancing area and balancing time")
     logger.info("Writing results by balancing area and balancing time")
@@ -1024,15 +1071,9 @@ def copy_supply_parameter(srcpath):
     shutil.copy(srcpath, path)
 
 
-def execute_in_process_pool(f, args):
-    nprocess = int(config.get_config_value("numthreads"))
-    with Pool(processes=nprocess) as pool:
-        logger.debug(
-            f"Starting process pool of size {nprocess} for {f.__qualname__}")
-        return pool.starmap(f, args, chunksize=4)
-
-
 def clean_output():
+    """Deletes files from output directory.
+    """
     outputpath = filemanager.get_output_path("Demand")
     if os.listdir(outputpath):
         warning = f"Results of previous run are present at {outputpath}. Results will be overwritten, press n to cancel, enter to continue (y/n)"
@@ -1077,8 +1118,15 @@ def rumi_demand(model_instance_path: str,
     :param: validation : bool
               Whether to do validation
 
-
     """
+    if not loaders.sanity_check_cmd_args("Demand",
+                                         model_instance_path,
+                                         scenario,
+                                         logger_level,
+                                         numthreads,
+                                         cmd='rumi_demand'):
+        return
+
     global logger
     config.initialize_config(model_instance_path, scenario)
     if output:
@@ -1093,19 +1141,35 @@ def rumi_demand(model_instance_path: str,
     logger = logging.getLogger("rumi.processing.demand")
 
     try:
-        if all([demand_sector, energy_service, energy_carrier]):
-            print(compute_demand(demand_sector,
-                                 energy_service,
-                                 energy_carrier))
+        ds_es_ec = [demand_sector, energy_service, energy_carrier]
+        if all(ds_es_ec):
+            if not check_valid_ds_es_ec(demand_sector,
+                                        energy_service,
+                                        energy_carrier):
+                pass
+            else:
+                print(compute_demand(demand_sector,
+                                     energy_service,
+                                     energy_carrier))
+        elif any(ds_es_ec):  # any but not all!
+            print(
+                "Partial inputs given for demand_sector, energy_service and energy_carrier")
+            print(
+                "demand_sector, energy_service and energy_carrier , either all should be given or none.")
+            return
         else:
             complete_run()
     except Exception as e:
         logger.exception(e)
         raise e
+    finally:
+        time.sleep(1)
+        get_event().set()
 
 
 @click.command()
 @click.option("-m", "--model_instance_path",
+              type=click.Path(exists=True),
               help="Path of the model instance root folder")
 @click.option("-s", "--scenario",
               help="Name of the scenario within specified model")
@@ -1122,7 +1186,7 @@ def rumi_demand(model_instance_path: str,
               help="Name of the energy carrier",
               default=None)
 @click.option("-l", "--logger_level",
-              help="Level for logging: one of INFO, WARN, DEBUG or ERROR",
+              help="Level for logging: one of INFO, WARN, DEBUG or ERROR (default: INFO)",
               default="INFO")
 @click.option("-t", "--numthreads",
               help="Number of threads/processes (default: 2)",
@@ -1130,7 +1194,7 @@ def rumi_demand(model_instance_path: str,
 @click.option("--validation/--no-validation",
               help="Enable/disable validation (default: Enabled)",
               default=True)
-def _main(model_instance_path: str,
+def _main(model_instance_path,
           scenario: str,
           output: str,
           demand_sector: str,
@@ -1144,7 +1208,9 @@ def _main(model_instance_path: str,
     -m/--model_instance_path and -s/--scenario are mandatory arguments, while the
     others are optional.
 
-    if demand_sector, energy_service, energy_carrier options are not provided,
+    if demand_sector, energy_service, energy_carrier options are provided, demand
+    will be computed only for given demand_sector, energy_service, energy_carrier
+    combinations. If these parameters are not given (none of them),
     then demand will be processed for all demand_sector, energy_service and
     energy_carrier combinations.
     """

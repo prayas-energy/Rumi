@@ -274,6 +274,47 @@ instance located one level up can be run using the following command:
 By default, the output of the supply module is written to the
 ``INSTANCEPATH/Scenarios/SCENARIONAME/Supply/Output`` folder.
 
+
+Post Processing
+-----------------
+
+In addition to the above commands to run the demand and supply components of Rumi, there is an additional command which processes the outputs produced by the demand and supply components to produce some useful aggregate results. Currently, the only aggregation supported is to compute the various emissions that are specified as part of the input. In future, other types of post-processing may also be added.
+
+The following help message lists the arguments for the ``rumi_postprocess`` command, which is to be run in the environment in which Rumi is installed:
+
+::
+
+ rumi_postprocess --help
+ Usage: rumi_postprocess [OPTIONS]
+
+  Post processing script. Supports computation of ECT emission  and EndUse
+  emission.
+
+   Options:
+  -m, --model_instance_path PATH  Path of the model instance root folder
+  -s, --scenario TEXT             Name of the scenario within specified
+                                  model
+  -o, --output TEXT               Path of the output folder
+  -D, --demand_output PATH        Path of Demand processing output folder
+  -S, --supply_output PATH        Path of Supply processing output folder
+  -l, --logger_level TEXT         Level for logging: one of INFO, WARN,
+                                  DEBUG or ERROR. (default: INFO)
+  --help                          Show this message and exit.
+
+::
+
+For example, the postprocess module for ``Scenario1`` of the PIER model instance located one level up can be run using the following command:
+
+::
+
+ rumi_postprocess -m "../PIER" -s "Scenario1"
+
+::
+
+By default, the output of the postprocess module is written to the
+``INSTANCEPATH/Scenarios/SCENARIONAME/PostProcess/Output`` folder.
+
+
 PIER
 -----
 

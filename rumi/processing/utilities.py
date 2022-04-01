@@ -54,21 +54,24 @@ def group_by_season(data, target):
 
 
 def seasonwise_timeslices(data, target):
-    """computes new target column  target * DayTypeWeight * NumDaysInSeason
+    """if data has granularity finer than season, 
+    computes new target column  target * DayTypeWeight * NumDaysInSeason
+    else same data is returned.
+
+    assumes that dataframe has not empty fields.
     """
-    if "Season" in data.columns:
+    if "DayType" in data.columns:
         colname = "Season" + target
         if colname in data:
             del data[colname]
         indexcols = [
             c for c in data.columns if c != target]
-        data = data.set_index(indexcols)
         if 'DayType' in data.columns:
             DayTypes = loaders.get_parameter('DayTypes')
             weights = DayTypes.set_index("DayType")['Weight']
-            weights = 1
         else:
             weights = 1
+        data = data.set_index(indexcols)
         seasons_size = pd.Series(common.seasons_size())
         seasons_size.index.rename('Season', inplace=True)
         starget = data[target]*weights*seasons_size

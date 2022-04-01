@@ -27,8 +27,9 @@ from rumi.io.functionstore import transpose, column, unique, concat, x_in_y
 from rumi.io.functionstore import circular, valid_date
 import functools
 import logging
-from rumi.io.logger import init_logger
-
+from rumi.io.logger import init_logger, get_event
+from rumi.io.multiprocessutils import execute_in_process_pool
+from rumi.io.multiprocessutils import execute_in_thread_pool
 logger = logging.getLogger(__name__)
 
 
@@ -65,10 +66,9 @@ def load_param(param_name: str):
     nested = specs.get('nested')
     if nested and '$' not in nested:
         subfolder = specs.get('nested')
+        filepath = filemanager.find_filepath(param_name, subfolder)
     else:
-        subfolder = None
-
-    filepath = filemanager.find_filepath(param_name, subfolder)
+        filepath = filemanager.find_filepath(param_name)
 
     logger.debug(f"Reading {param_name} from file {filepath}")
 
@@ -106,6 +106,7 @@ def load_dataframe(param, filepath, specs):
                     except ValueError as v:
                         logger.error(
                             f"In {param}, could not convert {row[key]} for {key}")
+                        logger.exception(v)
 
                         data.setdefault(key, []).append(
                             convert(col['default']))
@@ -163,14 +164,14 @@ def validate_each_item(param: str, spec: dict, data):
             if 'min' in spec['columns'].get(column_, {}):
                 m = spec['columns'][column_]['min']
                 default = spec['columns'][column_].get('default')
-                if (c < m).all() and (c[c < m] != default).all():
+                if (c < m).any() and (c[c < m] != default).any():
                     logger.error(
                         f"for {param}, {column_} should be >= {m}")
                     return False
 
             if 'max' in spec['columns'].get(column_, {}):
                 m = spec['columns'][column_]['max']
-                if (c > m).all():
+                if (c > m).any():
                     logger.error(
                         f"For {param}, {column_} should be <= {m}")
                     return False
@@ -238,11 +239,11 @@ def load_namespace(namespace_defs, env):
         env[key] = eval(value, env)
 
 
-def get_params(specs):
-    params = {}
-    for param in [p for p in specs.keys() if p != 'global_validation']:
+def get_params(specs, threaded=False):
+
+    def get_param(param):
         try:
-            params[param] = get_parameter(param, validation=True)
+            return get_parameter(param, validation=True)
         except FileNotFoundError as fn:
             logger.exception(fn)
             raise fn
@@ -252,12 +253,28 @@ def get_params(specs):
         except TypeError as tpe:
             logger.debug(f"Automatic loading of {param} failed.")
             raise tpe
-    return params
+
+    param_names = [p for p in specs.keys() if p != 'global_validation']
+    if threaded:
+        values = execute_in_thread_pool(get_param, param_names)
+    else:
+        values = [get_param(p) for p in param_names]
+    return {p: v for p, v in zip(param_names, values)}
 
 
 def global_validation(data, global_validation_):
     """validations that depend on multiple parameters
     """
+
+    validations = global_validation_['validation']
+
+    # valid = execute_in_process_pool(validate_,
+    #                                [(data, global_validation_, v) for v in validations])
+    valid = [validate_(data, global_validation_, v) for v in validations]
+    return all(valid)
+
+
+def validate_(data, global_validation_, validation):
     env = {}
     env.update(data)
     env.update(globals())
@@ -272,16 +289,32 @@ def global_validation(data, global_validation_):
 
     load_namespace(global_validation_.get('namespace', {}), env)
 
-    validations = global_validation_['validation']
-    valid = True
-    for validation in validations:
-        if not eval_(validation, env):
-            print(validation['message'])
-            valid = False
-            logger.error(f"Global validation failed for {validation['code']}")
-            logger.error(validation['message'])
+    if eval_(validation, env):
+        return True
+    else:
+        print(validation['message'])
+        logger.error(f"Global validation failed for {validation['code']}")
+        logger.error(validation['message'])
+        return False
 
-    return valid
+
+def validate_param_(param,
+                    specs,
+                    d,
+                    module):
+    try:
+        if isinstance(d, type(None)):
+            # for complicated paramters with variable nested folders
+            # skip individual validation
+            return True
+        else:
+            return validate_param(
+                param, specs, d, module)
+    except Exception as e:
+        print(f"Error occured while validating {param}")
+        logger.error(f"Error occured while validating {param}")
+        logger.exception(e)
+        raise e
 
 
 def validate_params(param_type):
@@ -306,26 +339,17 @@ def validate_params(param_type):
     allspecs = dict(filemanager.get_type_specs(param_type))
     gvalidation = allspecs['global_validation']
     del allspecs['global_validation']
-    data = get_params(allspecs)
+    data = get_params(allspecs, threaded=True)
 
     valid = True
-    for param, d in data.items():
-        try:
-            if isinstance(d, type(None)):
-                continue
-                # for complicated paramters with variable nested folders
-                # skip individual validation
-            else:
-                valid = valid and validate_param(
-                    param, allspecs[param], d, gvalidation['module'])
-        except Exception as e:
-            valid = False
-            print(f"Error occured while validating {param}")
-            logger.error(f"Error occured while validating {param}")
-            logger.exception(e)
-            raise e
+    module = gvalidation['module']
+    valid = execute_in_process_pool(validate_param_,
+                                    [(p,
+                                      allspecs[p],
+                                      v,
+                                      module) for p, v in data.items()])
 
-    return global_validation(data, gvalidation) and valid
+    return global_validation(data, gvalidation) and all(valid)
 
 
 def call_loader(loaderstring, **kwargs):
@@ -518,18 +542,73 @@ def read_csv(param_name, filepath):
         raise e
 
 
+def sanity_check_cmd_args(param_type: str,
+                          model_instance_path: str,
+                          scenario: str,
+                          logger_level: str,
+                          numthreads: int,
+                          cmd='rumi_validate'):
+    def check_null(param_value, param_name):
+        if not param_value:
+            print(f"Command line parameter, {param_name} is compulsory")
+            return True
+        else:
+            return False
+
+    valid = False
+    if check_null(param_type, "-p/--param_type") or\
+       check_null(model_instance_path, "-m/--model_instance_path") or\
+       check_null(scenario, "-s/--scenario"):
+        pass
+    elif param_type not in ["Common", "Demand", "Supply"]:
+        print(f"Invalid param_type '{param_type}'")
+        print("param_type can be one of Common, Demand or Supply")
+    elif not os.path.exists(model_instance_path) or not os.path.isdir(model_instance_path):
+        print(f"Invalid model_instance_path '{model_instance_path}'")
+        print("give appropriate folder path")
+    elif logger_level not in ["INFO", "WARN", "DEBUG", "ERROR"]:
+        print(f"Invalid logger_level '{logger_level}'")
+        print("logger_level can be one of INFO,WARN,DEBUG,ERROR.")
+    elif numthreads <= 0:
+        print(f"Invalid numthreads '{numthreads}'")
+        print("numthreads can be positive integer")
+    else:
+        valid = True
+
+    if not valid:
+        print(f"run {cmd} --help for more help")
+    return valid
+
+
 def rumi_validate(param_type: str,
                   model_instance_path: str,
                   scenario: str,
-                  logger_level: str):
+                  logger_level: str,
+                  numthreads: int):
     """Function to validate Common or Demand or Supply
     """
     global logger
+
+    if not sanity_check_cmd_args(param_type,
+                                 model_instance_path,
+                                 scenario,
+                                 logger_level,
+                                 numthreads):
+        return
+
     config.initialize_config(model_instance_path, scenario)
     init_logger(param_type, logger_level)
+    config.set_config("numthreads", str(numthreads))
     logger = logging.getLogger("rumi.io.loaders")
-
-    print(validate_params(param_type))
+    try:
+        if (validate_params(param_type)):
+            logger.info(f"{param_type} Validation succeeded")
+            print(f"{param_type} Validation succeeded")
+        else:
+            logger.error(f"{param_type} Validation failed")
+            print(f"{param_type} Validation failed")
+    finally:
+        get_event().set()
 
 
 @click.command()
@@ -540,18 +619,23 @@ def rumi_validate(param_type: str,
 @click.option("-s", "--scenario",
               help="Name of Scenario")
 @click.option("-l", "--logger_level",
-              help="Level for logging,one of INFO,WARN,DEBUG,ERROR.",
+              help="Level for logging,one of INFO,WARN,DEBUG,ERROR. (default: INFO)",
               default="INFO")
+@click.option("-t", "--numthreads",
+              help="Number of threads/processes (default: 2)",
+              default=2)
 def main(param_type: str,
          model_instance_path: str,
          scenario: str,
-         logger_level: str):
+         logger_level: str,
+         numthreads: int):
     """Command line interface for data validation.
     """
     rumi_validate(param_type,
                   model_instance_path,
                   scenario,
-                  logger_level)
+                  logger_level,
+                  numthreads)
 
 
 if __name__ == "__main__":

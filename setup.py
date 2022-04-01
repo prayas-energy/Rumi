@@ -21,7 +21,7 @@ def requirements():
 
 setup(
     name="rumi",
-    version="1.0.0",
+    version="1.1.0",
     description="Rumi, An Open Source Energy Modelling Platform",
     long_description="README.md",
     long_description_content_type="text/markdown",
@@ -42,5 +42,6 @@ setup(
     install_requires=requirements(),
     entry_points={"console_scripts": ["rumi_demand=rumi.processing.demand:main",
                                       "rumi_validate=rumi.io.validate:main",
+                                      "rumi_postprocess=rumi.processing.postprocess:main",
                                       "rumi_supply=rumi.processing.supply:main"]},
 )

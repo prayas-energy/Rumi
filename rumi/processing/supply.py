@@ -25,7 +25,7 @@ import pandas as pd
 from argparse import ArgumentParser
 from pathlib import Path
 
-from rumi.io.logger import init_logger
+from rumi.io.logger import init_logger, get_event
 from rumi.io import config
 from rumi.io import loaders
 from rumi.io import supply
@@ -3366,7 +3366,6 @@ for var in instance.component_objects(Var, active = True):
     del df
 
 logger.info("Exit")
-
 logging.shutdown()
 shutil.copy(LOGFILE_NAME, output_folder_path)
 

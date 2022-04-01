@@ -26,7 +26,8 @@ global logger
 def rumi_validate(param_type: str,
                   model_instance_path: str,
                   scenario: str,
-                  logger_level: str):
+                  logger_level: str,
+                  numthreads: int):
     """Validate Common, Demand or Supply module data
 
     :param: param_type: str -> one of Common, Demand, Supply
@@ -39,7 +40,8 @@ def rumi_validate(param_type: str,
     loaders.rumi_validate(param_type=param_type,
                           model_instance_path=model_instance_path,
                           scenario=scenario,
-                          logger_level=logger_level)
+                          logger_level=logger_level,
+                          numthreads=numthreads)
 
 
 @click.command()
@@ -52,10 +54,14 @@ def rumi_validate(param_type: str,
 @click.option("-l", "--logger_level",
               help="Level for logging: one of INFO, WARN, DEBUG or ERROR (default: INFO)",
               default="INFO")
+@click.option("-t", "--numthreads",
+              help="Number of threads/processes (default: 2)",
+              default=2)
 def _main(param_type: str,
           model_instance_path: str,
           scenario: str,
-          logger_level: str):
+          logger_level: str,
+          numthreads: int):
     """Command line interface for data validation.
 
     -m/--model_instance_path, -s/--scenario and -p/--param_type are compulsory
@@ -64,7 +70,8 @@ def _main(param_type: str,
     rumi_validate(param_type=param_type,
                   model_instance_path=model_instance_path,
                   scenario=scenario,
-                  logger_level=logger_level)
+                  logger_level=logger_level,
+                  numthreads=numthreads)
 
 
 def main():

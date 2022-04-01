@@ -740,6 +740,46 @@ ResidualDemand:
     - code: check_consumer_validity(ResidualDemand, 'ResidualDemand',['EnergyService','EnergyCarrier'], demand_sector=demand_sector, exact=True)
       message: ResidualDemand data for {demand_sector} should have valid data for all specified consumer level
 
+      
+ST_EmissionDetails:
+  filetype: csv
+  axis: row
+  loader: rumi.io.demand.get_ST_EmissionDetails
+  nested: $demand_sector
+  optional: True
+  columns:
+    ServiceTech:
+      type: str
+    Year:
+      type: int
+    EmissionType:
+      type: str
+    DomEmissionFactor:
+      type: float
+      min: 0
+    ImpEmissionFactor:
+      type: float
+      min: 0
+  dependencies:
+    - ModelPeriod
+    - EmissionTypes
+    - PhysicalPrimaryCarriers
+    - PhysicalDerivedCarriers
+  filterqueries:
+      - Year >= {ModelPeriod.StartYear.iloc[0]}
+      - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: x_in_y(x=ServiceTech.apply(ST_to_EC), y=concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'),get_col(PhysicalDerivedCarriers,'EnergyCarrier')))
+      message: ServiceTech in ST_EmissionDetails should have associated EnergyCarrier from PhysicalPrimaryCarriers or PhysicalDerivedCarriers
+    - code: x_in_y(x=ST_EmissionDetails.EmissionType, y=get_col(EmissionTypes,'EmissionType'))
+      message: In ST_EmissionDetails , EmissionType should be one of the defined emission types from EmissionTypes
+    - code: unique(list(zip(ServiceTech.values, EmissionType.values, Year.values)))
+      message: In ST_EmissionDetails combination of ServiceTech, EmissionType and Year can not be repeated
+    - code: check_time_validity(ST_EmissionDetails, 'ST_EmissionDetails',['ServiceTech','EmissionType'], exact=True)
+      message: ST_EmissionDetails data should have valid data for all specified time columns
+
+
+    
 global_validation:
   module: rumi.io.demand
   include:
@@ -757,6 +797,17 @@ global_validation:
   
     # these can not be moved to local because these functions
     # do not work on individual file, they work on group of files
+    - code: existence_demand_energy_service_parameter('ES_Demand')
+      message: ES_Demand is missing or invalid
+    - code: existence_demand_energy_service_parameter('Penetration')
+      message: Penetration is missing or invalid
+    - code: existence_demand_energy_service_parameter('EfficiencyLevelSplit')
+      message: EfficiencyLevelSplit is missing or invalid
+    - code: existence_demand_energy_service_parameter('NumInstances')
+      message: NumInstances is missing or invalid
+    - code: check_ES_Demand_columns()
+      message: Demand columns in ES_Demand parameter are incorrect
+
     - code: existence_demand_parameter('BaseYearDemand')
       message: BaseYearDemand is missing or invalid
     - code: existence_demand_parameter('DemandElasticity')
@@ -767,19 +818,11 @@ global_validation:
       message: ResidualDemand is missing or invalid
     - code: existence_demand_parameter('ST_Efficiency')
       message: ST_Efficiency is missing or invalid
+    - code: existence_demand_parameter('ST_EmissionDetails')
+      message: ST_EmissionDetails is missing or invalid
     - code: existence_demand_parameter('ExtraneousDemand')
       message: ExtraneousDemand is missing or invalid
-    - code: existence_demand_energy_service_parameter('EfficiencyLevelSplit')
-      message: EfficiencyLevelSplit is missing or invalid
-    - code: existence_demand_energy_service_parameter('NumInstances')
-      message: NumInstances is missing or invalid
-    - code: check_ES_Demand_columns()
-      message: Demand columns in ES_Demand parameter are incorrect
-    - code: existence_demand_energy_service_parameter('ES_Demand')
-      message: ES_Demand is missing or invalid
-    - code: existence_demand_energy_service_parameter('Penetration')
-      message: Penetration is missing or invalid
-
+    
     # these can not be moved to local because these functions
     # do not work on individual file, they work on group of files
     - code: check_demand_granularity('BaseYearDemand', True, True, True)

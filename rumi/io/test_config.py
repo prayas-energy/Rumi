@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-import tempfile
-from rumi.io import config
+import shutil
 import pytest
-import yaml
 import multiprocessing
 import pkg_resources
+from rumi.io import config
 
 
 def create_model_instance(model_instance_path):
@@ -111,6 +110,23 @@ NER,AS,NE"""
         with open(os.path.join(commonpath,
                                ".".join([item, "csv"])), "w") as f:
             f.write(text)
+
+
+def remove_model_instance(model_instance_path):
+    data = ["ModelPeriod",
+            "ModelGeography",
+            "SubGeography1",
+            "SubGeography2",
+            "GDP"]
+
+    commonpath = os.path.join(model_instance_path,
+                              "Global Data",
+                              "Common",
+                              "Parameters")
+
+    for item in data:
+        os.unlink(os.path.join(commonpath,
+                               ".".join([item, "csv"])))
 
 
 @pytest.fixture()
@@ -230,6 +246,7 @@ config2: value2""")
 
     try:
         config.initialize_config(model_instance_path, "Scenario1")
+        config.set_config("numthreads", 1)
     except config.ConfigurationError as ec:
         print(config.get_config_value("model_instance_path"))
         print(config.get_config_value("yaml_location"))
@@ -237,10 +254,12 @@ config2: value2""")
 
     yield configfile
 
-    # os.unlink(commonfile)
-    # os.unlink(configfile)
-    # os.unlink(fs)
-    # os.removedirs(testdir)
+    os.unlink(commonfile)
+    os.unlink(configfile)
+    os.unlink(fs)
+    os.removedirs(testdir)
+    remove_model_instance(model_instance_path)
+    shutil.rmtree(model_instance_path)
 
 
 def test_initialize_config(configmanager):

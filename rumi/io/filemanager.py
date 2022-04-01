@@ -63,8 +63,11 @@ def supply_specs():
     return _load_specs("Supply")
 
 
+@functools.lru_cache(maxsize=None)
 def find_global_location(name):
     """finds location of parameter in Global Data
+    this is not complete path, it is only relative
+    to model instance
     """
     fs = folder_structure()
     path = find_location_(name, fs, [])
@@ -73,13 +76,30 @@ def find_global_location(name):
     return path
 
 
-def scenario_location():
+def scenario_path():
+    """only return complete path of scenario.
+    """
     scenario_name = config.get_config_value("scenario")
     instance_path = config.get_config_value("model_instance_path")
-    path = os.path.join(instance_path, "Scenarios", scenario_name)
+    return os.path.join(instance_path, "Scenarios", scenario_name)
+
+
+def scenario_location():
+    """return complete path of scenario.
+    also creates the folder if it does not exists.
+    """
+    path = scenario_path()
     if not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
     return path
+
+
+def get_custom_output_path(spec_type, output_path):
+    scenario_name = config.get_config_value("scenario")
+    return os.path.join(output_path,
+                        scenario_name,
+                        spec_type,
+                        'Output')
 
 
 def get_output_path(spec_type):
@@ -88,9 +108,7 @@ def get_output_path(spec_type):
     output_path = config.get_config_value("output")
 
     if output_path:
-        scenario_name = config.get_config_value("scenario")
-        output_path = os.path.join(
-            output_path, scenario_name, spec_type, 'Output')
+        output_path = get_custom_output_path(spec_type, output_path)
     else:
         scenario_path = scenario_location()
         output_path = os.path.join(scenario_path, spec_type, 'Output')
@@ -123,12 +141,12 @@ def get_type_specs(name):
         raise FolderStructureError(f"No such parameter type, {name}")
 
 
-def filename(name):
+def filename(name, prefix=""):
     """Return filename for given parameter"""
-    return "{}.{}".format(name, get_specs(name)['filetype'])
+    return "{}{}.{}".format(prefix, name, get_specs(name)['filetype'])
 
 
-def find_filepath(name, subfolder=None):
+def find_filepath(name, *subfolder, fileprefix=""):
     """Finds path where the parameter is stored.
 
     Paramters
@@ -146,18 +164,13 @@ def find_filepath(name, subfolder=None):
     global_path = find_global_location(name)
     possible_path = global_path.replace("Global Data",
                                         scenario_location())
-    filename_ = filename(name)
-    if subfolder:
-        filepath = os.path.join(possible_path, subfolder, filename_)
-    else:
-        filepath = os.path.join(possible_path, filename_)
+    filename_ = filename(name, fileprefix)
+
+    filepath = os.path.join(possible_path, *subfolder, filename_)
     if os.path.exists(filepath):
         return filepath
     else:
-        if subfolder:
-            return os.path.join(prefix, global_path, subfolder, filename_)
-        else:
-            return os.path.join(prefix, global_path, filename_)
+        return os.path.join(prefix, global_path, *subfolder, filename_)
 
 
 def get_config_parameter_path(param_name):
