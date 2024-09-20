@@ -29,7 +29,7 @@ Users need to download the latest Rumi source repository from release [tag](http
 
 ### Creating a Virtual environment
 
-1. Python version greater than or equal to 3.7 is needed.
+1. Rumi has been tested with Python versions 3.9, 3.10 and 3.11.
 2. Use of a virtual environment is recommended so that the changes made for
    installing Rumi do not affect other programs.
 
@@ -37,10 +37,11 @@ Users need to download the latest Rumi source repository from release [tag](http
    environments. Specifically, the following commands can be used to create
    and activate a virtual environment:
    ```
-    conda create -n VENVNAME
+    conda create -n VENVNAME python=x.y.z
     conda activate VENVNAME
    ```
-   where `VENVNAME` is the name of the virtual environment.
+   where `VENVNAME` is the name of the virtual environment, and
+         `x.y.z` is the desired Python version (ex: `3.10.14`)
    For more info, refer to the Anaconda documentation.
 
    If not using Anaconda, virtual environments can be created using virtualenv.
@@ -81,34 +82,28 @@ Users need to download the latest Rumi source repository from release [tag](http
    ```
     pip install -e .
    ```
-      Note:  If you encounter "pip" errors while running it through Anaconda, please try the following: 
-
-      a)  `conda deactivate`
-
-      b)  `conda create -n VENVNAME python=x.y.z`
-
-      where `x.y.z` is the latest Python version (ex: `3.7.4`)
-      
-      c)  `conda activate VENVNAME`
 
 
-
-2. To test the installation, run the following command in the repository
-   base directory:
+2. To test the installation, either of the following commands can be run in the
+   environment in which Rumi is installed:
 
    ```
-    pytest
+   rumi_validate --help
+   rumi_demand --help
+   rumi_supply --help
+   rumi_postprocess --help
    ```
 
-   If all tests pass successfully, the installation is ready to use!
+   If the above commands run successfully providing the respective help messages,
+   the installation is ready to use!
 
-3. Running the supply module involves solving a linear program using a solver
+4. Running the supply module involves solving a linear program using a solver
    supported by Pyomo, such as CBC, CPLEX or Gurobi. Hence, a solver needs to be
    installed, and the solver name (`solver_name`) and, if needed, the path to the
    solver executable (`solver_executable`) need to be mentioned in the
    [`rumi/Config/Config.yml`](/rumi/Config/Config.yml) file.
 
-4. For more details regarding configuring the Rumi installation, refer to the
+5. For more details regarding configuring the Rumi installation, refer to the
    rumi-overview.pdf document in the [`Docs`](/Docs) folder.
 
 ### Checking data validity
