@@ -37,7 +37,7 @@ def circular(values, circle):
     m = values.index(min(values))
     values = values[m:] + values[:m]
     diff = [v2-v1 for v1, v2 in zip(values, values[1:])]
-    return all([d > 0 for d in diff]) and all([v in circle for v in values])
+    return all([d >= 0 for d in diff]) and all([v in circle for v in values])
 
 
 def valid_date(m, d):

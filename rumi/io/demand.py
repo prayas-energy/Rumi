@@ -868,6 +868,10 @@ def validate_each_demand_param(name, data, **kwargs):
     """Validates individual parameter according to specs given in yml file.
     """
     specs = filemanager.demand_specs()[name]
+
+    if specs.get("optional", False) and isinstance(data, type(None)):
+        return True
+    
     return loaders.validate_param(name,
                                   specs,
                                   data,
@@ -1287,6 +1291,7 @@ def check_total_penetration():
     """checks if penetrations for each ST together with which it can
     appear totals less than or equal to 1
     """
+    precision = 1e-6
     ds_es = get_bottomup_ds_es()
     valid = True
     for ds, es in ds_es:
@@ -1307,13 +1312,14 @@ def check_total_penetration():
                                        ST_combination=c) for c in combs]
             indexcols = utilities.get_all_structure_columns(p[0])
             p = [item.set_index(indexcols) for item in p]
-            valid = valid and (functools.reduce(
-                lambda x, y: x+y, [item['Penetration'] for item in p], 0) > 1).sum() == 0
-            if not valid:
-                print(functools.reduce(
-                    lambda x, y: x+y, [item['Penetration'] for item in p], 0) > 1)
+            v = (functools.reduce(
+                lambda x, y: x+y, [item['Penetration'] for item in p], 0) > 1 + precision).sum() == 0
+            if not v:
+                print(f"Penetration for {combs} sums more than 1!")
                 logger.error(f"Penetration for {combs} sums more than 1!")
-
+                
+            valid = valid and v
+                
     return valid
 
 

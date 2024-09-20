@@ -299,7 +299,7 @@ def get_nongeographic_columns(d):
 def group_by_geographic(d, balancing_area, superset_cols):
     geocols_ = common.get_geographic_columns(balancing_area)
     othercols = get_nongeographic_columns(d)
-    d = d.groupby(othercols + geocols_).sum().reset_index()
+    d = d.groupby(othercols + geocols_).sum(numeric_only=True).reset_index()
 
     rows = len(d)
     diff = [c for c in superset_cols if c not in geocols_]
@@ -597,9 +597,9 @@ def check_retirement_capacity(ECT_LegacyRetirement, ECT_LegacyCapacity):
     geocols = utilities.get_geographic_columns_from_dataframe(
         ECT_LegacyCapacity)
     groupcols = geocols + ["EnergyConvTech"]
-    retirement_plan = ECT_LegacyRetirement.groupby(groupcols).sum()[
+    retirement_plan = ECT_LegacyRetirement.groupby(groupcols).sum(numeric_only=True)[
         'RetCapacity']
-    capacity = ECT_LegacyCapacity.groupby(groupcols).sum()['LegacyCapacity']
+    capacity = ECT_LegacyCapacity.groupby(groupcols).sum(numeric_only=True)['LegacyCapacity']
     capacity_subset = capacity.loc[retirement_plan.index.values]
     notexceed = retirement_plan <= capacity_subset
     if all(notexceed):

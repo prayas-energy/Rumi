@@ -2082,6 +2082,18 @@ def get_stor_lifetime_cycles_in_model_dict(m):
              for ba in get_bal_area_set(m, get_stored_ec(est_yr[0]))}
     return {**dict1, **dict2}
 
+def get_pyomo_set_value_from_ordered_position(pyomo_set_obj, position):
+    if (hasattr(pyomo_set_obj, "at") and callable(pyomo_set_obj.at)):
+        return pyomo_set_obj.at(position)
+    else:
+        return pyomo_set_obj[position]
+
+def get_first_daysliceinp(m):
+    return get_pyomo_set_value_from_ordered_position(m.DaySliceInp, 1)
+
+def get_last_daysliceinp(m):
+    return get_pyomo_set_value_from_ordered_position(m.DaySliceInp, len(m.DaySliceInp))
+
 def is_time_to_reset_stor(m, est, btconc_elem):
     bal_time_inp = get_bal_time_inp(get_stored_ec(est))
     stor_periodicity_inp = get_stor_periodicity(est)
@@ -2102,16 +2114,16 @@ def is_time_to_reset_stor(m, est, btconc_elem):
     if (bal_time_inp == BALTIME_DS_STR):
         if (stor_periodicity_inp == ANNUAL_RESET_STR):
             if ((btconc_elem[1] == m.SeasonInp[1]) and (btconc_elem[2] == 1) and 
-                (btconc_elem[4] == m.DaySliceInp[1])):
+                (btconc_elem[4] == get_first_daysliceinp(m))):
                 return True
             return False
         if (stor_periodicity_inp == SEASONAL_RESET_STR):
-            if ((btconc_elem[2] == 1) and (btconc_elem[4] == m.DaySliceInp[1])):
+            if ((btconc_elem[2] == 1) and (btconc_elem[4] == get_first_daysliceinp(m))):
                 return True
             return False
         if (stor_periodicity_inp == DAILY_RESET_STR):
             ds = btconc_elem[4] if m.day_no_time_elem_reqd else btconc_elem[3]
-            if (ds == m.DaySliceInp[1]):
+            if (ds == get_first_daysliceinp(m)):
                 return True
         return False
     return False
@@ -2717,12 +2729,12 @@ def ect_ramp_down_rule2(m, iy, ect, *args):         #args = btconc_ba
        ):
         ds = args[4] if m.day_no_time_elem_reqd else args[3]
 
-        if (ds == m.DaySliceInp[1]):
+        if (ds == get_first_daysliceinp(m)):
             btconc = args[0 : m.num_conc_time_colms]
             ba = args[m.num_conc_time_colms : 
                       m.num_conc_time_colms + m.num_geog_colms]
 
-            last_ds = m.DaySliceInp[len(m.DaySliceInp)]
+            last_ds = get_last_daysliceinp(m)
 
             btconc_last_ds = btconc[0 : (4 if m.day_no_time_elem_reqd 
                                          else 3)] + (last_ds, )
@@ -2759,12 +2771,12 @@ def ect_ramp_up_rule2(m, iy, ect, *args):           #args = btconc_ba
        ):
         ds = args[4] if m.day_no_time_elem_reqd else args[3]
 
-        if (ds == m.DaySliceInp[1]):
+        if (ds == get_first_daysliceinp(m)):
             btconc = args[0 : m.num_conc_time_colms]
             ba = args[m.num_conc_time_colms : 
                       m.num_conc_time_colms + m.num_geog_colms]
 
-            last_ds = m.DaySliceInp[len(m.DaySliceInp)]
+            last_ds = get_last_daysliceinp(m)
 
             btconc_last_ds = btconc[0 : (4 if m.day_no_time_elem_reqd 
                                          else 3)] + (last_ds, )
@@ -3289,9 +3301,30 @@ def process_columns(columns_list):
             columns_list[index_list[0]] = model.src_geog_columns_list[pos]
             columns_list[index_list[1]] = model.dest_geog_columns_list[pos]
 
+PARAM_INDEX_ATTRIBUTE_NAME_CHOICES = ["_index", "_index_set"]
+VAR_INDEX_ATTRIBUTE_NAME_CHOICES = ["_index", "_index_set"]
+
+def get_param_index_attibute_name(param_obj):
+    for choice in PARAM_INDEX_ATTRIBUTE_NAME_CHOICES:
+        if hasattr(param_obj, choice):
+             return choice
+    print("ERROR: Pyomo version does not support any of these attributes for Param:",
+          PARAM_INDEX_ATTRIBUTE_NAME_CHOICES)
+    logger.info("Exit")
+    sys.exit(1)
+
+def get_var_index_attibute_name(var_obj):
+    for choice in VAR_INDEX_ATTRIBUTE_NAME_CHOICES:
+        if hasattr(var_obj, choice):
+             return choice
+    print("ERROR: Pyomo version does not support any of these attributes for Var:",
+          VAR_INDEX_ATTRIBUTE_NAME_CHOICES)
+    logger.info("Exit")
+    sys.exit(1)
+
 def CreateVarDF(Var):
     if (Var.dim() > 0):
-        columns_list = get_index_labels(Var._index)
+        columns_list = get_index_labels(getattr(Var, get_var_index_attibute_name(Var)))
         process_columns(columns_list)
         df = pd.DataFrame(list(Var._data.keys()), columns = columns_list)
     else:
@@ -3319,7 +3352,7 @@ ExcelVarList = ["QtyGenFromTech", "ExistingCapacity", "CapacityInstalled", "QtyF
 
 def CreateParamDF(Param):
     if (Param.dim() > 0):
-        columns_list = get_index_labels(Param._index)
+        columns_list = get_index_labels(getattr(Param, get_param_index_attibute_name(Param)))
         process_columns(columns_list)
         df = pd.DataFrame(list(Param._data.keys()), columns = columns_list)
     else:

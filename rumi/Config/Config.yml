@@ -54,3 +54,12 @@
 # this helps in debugging - in case the solver reports issues
 #
 symbolic_solver_labels: false
+
+####    PostProcessing configuration parameters
+
+# PostProcessing Config Parameter #01
+# TPES_EU is required - for the postprocessing script to compute TPES (Total Primary Energy Supply)
+# It denotes the common Energy Unit to be used for computing TPES across all relevant Energy Carriers
+# The common Energy Unit so specified, must be present in EnergyUnitConversion.csv
+#
+#TPES_EU: EJ

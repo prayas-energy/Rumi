@@ -51,10 +51,11 @@ def listener_configurer(filename, level):
 
 
 def worker_configurer(queue):
+    level = config.get_config_value("logger_level")
     h = logging.handlers.QueueHandler(queue)
     root = logging.getLogger()
     root.addHandler(h)
-    root.setLevel(logging.DEBUG)
+    root.setLevel(levels[level])
 
 
 def listener_process(filename, level, queue, event: multiprocessing.Event):
@@ -88,4 +89,5 @@ def init_logger(spec_type, level="INFO"):
                                              queue,
                                              stopevent))
     listener.start()
+    config.set_config("logger_level", level)
     worker_configurer(queue)

@@ -188,3 +188,30 @@ def test_unique_across(monkeypatch):
     assert utilities.unique_across(basedf, ['EnergyCarrier'])
     assert not utilities.unique_across(pd.concat([basedf]*2),
                                        ['EnergyCarrier'])
+
+
+def test_compute_intervals():
+    seasons = utilities.make_dataframe("""Season,StartMonth,StartDate
+SUMMER,4,1
+MONSOON,6,1
+AUTUMN,9,1
+WINTER,11,1
+SPRING,2,1""")
+    assert utilities.compute_intervals(seasons) == {
+        'SUMMER': 61, 'MONSOON': 92, 'AUTUMN': 61, 'WINTER': 92, 'SPRING': 59}
+    seasons = utilities.make_dataframe("""Season,StartMonth,StartDate
+SUMMER,4,1
+REST,10,1""")
+    assert utilities.compute_intervals(seasons) == {
+        'SUMMER': 183, 'REST': 182}
+    seasons = utilities.make_dataframe("""Season,StartMonth,StartDate
+SUMMER,4,1
+REST,3,31""")
+    assert utilities.compute_intervals(seasons) == {
+        'SUMMER': 364, 'REST': 1}
+    seasons = utilities.make_dataframe("""Season,StartMonth,StartDate
+SUMMER,4,1
+REST,4,1
+XXX,5,1""")
+    assert utilities.compute_intervals(seasons) == {
+        'SUMMER': 0, 'REST': 30, 'XXX': 335}

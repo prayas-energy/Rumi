@@ -46,14 +46,14 @@ Seasons:
       min: 1
       max: 31
   validation:
-    - code: circular(StartMonth, range(1,13))
-      message: Invalid StartMonth for Seasons, check Seasons carefully
     - code: valid_date(StartMonth,StartDate)
       message: Month and date specified in Seasons has invalid date
     - code: unique(Season)
       message: Season names should not be repeated
     - code: sum_of_durations(Seasons) == 365
       message: The sum of the durations of all the seasons should be equal to 365
+    - code: all([interval>0 for s,interval in utilities.compute_intervals(Seasons).items()])
+      message: Intervals in Seasons parameter should be strictly positive. {[s for s,i in utilities.compute_intervals(Seasons).items() if i<=0]} seasons violate this rule 
     
 
 DayTypes:

@@ -97,21 +97,18 @@ def unique_across(data, columns):
     """
     geocols = get_geographic_columns_from_dataframe(data)
     timecols = get_time_columns_from_dataframe(data)
-    cols = geocols + timecols + columns
+    conscols = get_consumer_columns_from_dataframe(data)
+    cols = geocols + timecols + conscols + columns
     return len(data) == len(data.drop_duplicates(subset=cols))
 
 
 def find_interval(start, end):
     m1, d1 = start
     m2, d2 = end
-
-    y1 = 2018  # because we are comnsidering nonleap year
-    # and year starts at april this should work!
-    if m2 < m1:
-        y2 = 2019
-    else:
-        y2 = 2018
-    interval = datetime.datetime(y2, m2, d2) - datetime.datetime(y1, m1, d1)
+    y = 2019  # non leap year
+    interval = datetime.datetime(y, m2, d2) - datetime.datetime(y, m1, d1)
+    if interval.days < 0:
+        return interval.days + 365
     return interval.days
 
 
@@ -193,7 +190,7 @@ def valid_geography(dataframe):
 
     for t in data.index.unique():
         d = data.loc[t]
-        d = d.reset_index(drop=True)
+        d = d.sort_values(geocols).reset_index(drop=True)
         valid = valid and d.eq(base).all().all()
     return valid
 
@@ -246,7 +243,7 @@ def group_daytype(data, geogroup, target):
         return data.groupby(geogroup +
                             ['Year',
                              'Season',
-                             'DayType'], sort=False).sum()[targets].reset_index()
+                             'DayType'], sort=False).sum(numeric_only=True)[targets].reset_index()
     else:
         return data
 
@@ -268,7 +265,7 @@ def group_season(data, geogroup, target):
             data[item] = data[item]*seasons_size_
         data = data.reset_index()
         return data.groupby(geogroup +
-                            ['Year', 'Season'], sort=False).sum()[targets].reset_index()
+                            ['Year', 'Season'], sort=False).sum(numeric_only=True)[targets].reset_index()
     else:
         return data
 
@@ -284,7 +281,7 @@ def group_year(data, geogroup, target):
     if 'Season' in data.columns:
         timecols = ['Year']
         data = data.groupby(geogroup + timecols,
-                            sort=False).sum()[targets].reset_index()
+                            sort=False).sum(numeric_only=True)[targets].reset_index()
     return data
 
 
@@ -313,6 +310,52 @@ def groupby_time(data,
         return data
 
 
+def make_list(target):
+    if isinstance(target, list):
+        return target
+    else:
+        return [target]
+
+
+def groupby(data,
+            groupcols,
+            target):
+    """time columns needs to be handled specially, so this is
+    alternative to DataFrame.groupby. One should always have
+    at least coarsest time column in groupcols
+    """
+    # TODO: This needs unittest. many calculations depend on this
+    othercols = [c for c in groupcols if c not in constant.TIME_SLICES]
+    targets = make_list(target)
+    if 'DaySlice' in groupcols:
+        r = data
+    elif 'DayType' not in groupcols and\
+        'Season' not in groupcols and\
+            'Year' in groupcols:
+        r1 = group_daytype(data, othercols, targets)
+        r2 = group_season(r1, othercols, targets)
+        r = group_year(r2,
+                       othercols,
+                       targets)
+
+    elif "DayType" not in groupcols and \
+         'Season' in groupcols:
+        r = group_daytype(data, othercols, targets)
+        r = group_season(r, othercols, targets)
+    elif 'DayType' in groupcols:  # DaySlice not in groupcols implicit meaning
+        # check if condition
+        r = group_daytype(data, othercols, targets)
+    else:
+        raise Exception("Invalid groupby columns")
+
+    if r is data:
+        r = data.groupby(groupcols, sort=False)[targets].sum().reset_index()
+
+    r = r.set_index(get_all_structure_columns(r))
+
+    return r[target]
+
+
 def order_by(v):
     flag = True
     if v.name == 'Season':
@@ -338,15 +381,15 @@ def order_by(v):
 
 def get_order(col, param):
     parameter = loaders.get_parameter(param)
-    return list(parameter[col].values) + [np.NaN]
+    return list(parameter[col].values) + [np.nan]
 
 
 def geo_order(col):
     parameter = loaders.get_parameter(col)
     if col == 'SubGeography1':
-        return parameter + [np.NaN]
+        return parameter + [np.nan]
     else:
-        return sum(parameter.values(), []) + [np.NaN]
+        return sum(parameter.values(), []) + [np.nan]
 
 
 def get_ordered_cols(df):

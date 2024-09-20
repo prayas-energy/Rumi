@@ -15,8 +15,11 @@
 this module can depend only on python modules and functionstore,
 filemanager, config
 """
+import time
 import os
 import csv
+import functools
+import logging
 import importlib
 import yaml
 import click
@@ -25,9 +28,7 @@ from rumi.io import config
 from rumi.io import filemanager
 from rumi.io.functionstore import transpose, column, unique, concat, x_in_y
 from rumi.io.functionstore import circular, valid_date
-import functools
-import logging
-from rumi.io.logger import init_logger, get_event
+from rumi.io.logger import init_logger, get_event, get_queue
 from rumi.io.multiprocessutils import execute_in_process_pool
 from rumi.io.multiprocessutils import execute_in_thread_pool
 logger = logging.getLogger(__name__)
@@ -360,7 +361,10 @@ def call_loader(loaderstring, **kwargs):
     return loader_function(**kwargs)
 
 
+@functools.lru_cache(maxsize=None)
 def get_config_parameter(param_name):
+    """reads config parameter file e.g. EnergyUnitConversion
+    """
     path = filemanager.get_config_parameter_path(param_name)
     return pd.read_csv(path)
 
@@ -381,6 +385,7 @@ def call_loader_(specs, param_name, **kwargs):
     except FileNotFoundError as fne:
         if specs.get('optional'):
             d = None
+            logger.warning(f"Unable to find file for optional parameter {param_name}")
         else:
             raise fne
     return d
@@ -587,7 +592,6 @@ def rumi_validate(param_type: str,
                   numthreads: int):
     """Function to validate Common or Demand or Supply
     """
-    global logger
 
     if not sanity_check_cmd_args(param_type,
                                  model_instance_path,
@@ -596,9 +600,11 @@ def rumi_validate(param_type: str,
                                  numthreads):
         return
 
+    global logger
     config.initialize_config(model_instance_path, scenario)
-    init_logger(param_type, logger_level)
     config.set_config("numthreads", str(numthreads))
+
+    init_logger(param_type, logger_level)
     logger = logging.getLogger("rumi.io.loaders")
     try:
         if (validate_params(param_type)):
@@ -608,6 +614,9 @@ def rumi_validate(param_type: str,
             logger.error(f"{param_type} Validation failed")
             print(f"{param_type} Validation failed")
     finally:
+        while not get_queue().empty():
+            time.sleep(1)
+
         get_event().set()
 
 
@@ -619,7 +628,7 @@ def rumi_validate(param_type: str,
 @click.option("-s", "--scenario",
               help="Name of Scenario")
 @click.option("-l", "--logger_level",
-              help="Level for logging,one of INFO,WARN,DEBUG,ERROR. (default: INFO)",
+              help="Level for logging,one of DEBUG,INFO,WARN,ERROR. (default: INFO)",
               default="INFO")
 @click.option("-t", "--numthreads",
               help="Number of threads/processes (default: 2)",

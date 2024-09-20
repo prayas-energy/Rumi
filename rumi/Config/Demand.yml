@@ -581,7 +581,7 @@ EfficiencyLevelSplit:
     - code: one_to_one(ServiceTech, concat(*[row[2:] for row in DS_ES_ST_Map if row[0]==demand_sector and row[1]==energy_service]))
       message: All ServiceTechs in EfficiencyLevelSplit for {demand_sector},{energy_service} , should exactly match with those specified in DS_ES_ST_Map
     # TODO For each <consumer-type, geography, time> combination, the sum of SplitShare values across all EfficiencyLevelNames must equal 1
-    - code: abs(EfficiencyLevelSplit.groupby(utilities.get_all_structure_columns(EfficiencyLevelSplit, index_cols=['ServiceTech'])).sum().prod()['SplitShare'] - 1.0)<=0.001
+    - code: abs(EfficiencyLevelSplit.groupby(utilities.get_all_structure_columns(EfficiencyLevelSplit, index_cols=['ServiceTech'])).sum(numeric_only=True).prod()['SplitShare'] - 1.0)<=0.001
       message: In EfficiencyLevelSplit for {demand_sector},{energy_service}, for each <consumer-type, geography, time> combination, the sum of SplitShare values across all EfficiencyLevelNames must equal 1
     
 Penetration:

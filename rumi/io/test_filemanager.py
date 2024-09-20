@@ -7,7 +7,7 @@ from rumi.io.test_config import configmanager
 
 def test_find_filepath(configmanager):
     assert filemanager.find_filepath(
-        "ModelPeriod") == "Test Instance/Global Data/Common/Parameters/ModelPeriod.csv"
+        "ModelPeriod") == os.path.join("Test Instance", "Global Data", "Common", "Parameters", "ModelPeriod.csv")
 
     global_path = os.path.join(filemanager.find_global_location("ModelPeriod"),
                                filemanager.filename("ModelPeriod"))
@@ -20,12 +20,12 @@ def test_find_filepath(configmanager):
     shutil.copyfile(source_path, dest_path)
 
     assert filemanager.find_filepath(
-        "ModelPeriod") == "Test Instance/Scenarios/Scenario1/Common/Parameters/ModelPeriod.csv"
+        "ModelPeriod") == os.path.join("Test Instance", "Scenarios", "Scenario1", "Common", "Parameters", "ModelPeriod.csv")
 
     os.unlink(dest_path)
 
     assert filemanager.find_filepath(
-        "ModelPeriod") == "Test Instance/Global Data/Common/Parameters/ModelPeriod.csv"
+        "ModelPeriod") == os.path.join("Test Instance", "Global Data", "Common", "Parameters", "ModelPeriod.csv")
 
 
 @pytest.fixture()

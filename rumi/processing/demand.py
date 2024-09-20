@@ -31,7 +31,7 @@ from rumi.io import demand as demandio
 from rumi.io import functionstore as fs
 from rumi.io import common
 from rumi.io import filemanager
-from rumi.io.logger import init_logger, get_event
+from rumi.io.logger import init_logger, get_event, get_queue
 from rumi.processing import utilities
 from rumi.io.utilities import groupby_time
 import rumi.io.utilities as ioutils
@@ -255,7 +255,7 @@ def growth_rate_elasticity_finer(GDP, elasticity, g_geocols, indexcols):
 
 
 def growth_rate_elasticity_coarser(GDP, elasticity, e_geocols):
-    gdp = GDP.groupby(e_geocols + ['Year']).sum().reset_index()
+    gdp = GDP.groupby(e_geocols + ['Year']).sum(numeric_only=True).reset_index()
     gdp_rate = compute_gdp_rate(gdp)
 
     gdp_rate = gdp_rate.set_index(e_geocols + ['Year'])
@@ -667,7 +667,7 @@ def aggregate_demand(demand, aggcols):
     corresponding residual demand.
     """
     # can be optimized if needed, aggregate only if required.
-    return demand.reset_index().groupby(aggcols)['EnergyDemand'].sum()
+    return ioutils.groupby(demand, aggcols, 'EnergyDemand')
 
 
 def compute_residual_demand(demand_sector,
@@ -753,7 +753,7 @@ def compute_demand_with_coarseness(demand_sector,
     """aggregates the demand over the granularity given by columns
     """
     demand = compute_demand(demand_sector, energy_service, energy_carrier)
-    return demand.groupby(columns).sum()
+    return ioutils.groupby(demand, columns, 'EnergyDemand')
 
 
 def compute_demand_with_coarseness_service_techs(demand_sector,
@@ -778,12 +778,14 @@ def compute_demand_with_coarseness_service_techs(demand_sector,
                                                             energy_service,
                                                             energy_carrier)
     if not service_techs_files:
-        return ioutils.order_rows(demand.groupby(columns).sum().reset_index())
+        return ioutils.order_rows(ioutils.groupby(demand,
+                                                  columns,
+                                                  'EnergyDemand').reset_index())
     else:
         d = []
         for st in service_techs_files:
-            df = pd.read_csv(service_techs_files[st]).groupby(
-                columns).sum().reset_index()
+            df = ioutils.groupby(pd.read_csv(service_techs_files[st]),
+                                 columns, 'EnergyDemand').reset_index()
             df['ServiceTech'] = st
             d.append(ioutils.order_rows(df))
         return pd.concat(d)
@@ -1163,7 +1165,9 @@ def rumi_demand(model_instance_path: str,
         logger.exception(e)
         raise e
     finally:
-        time.sleep(1)
+        while not get_queue().empty():
+            time.sleep(1)
+
         get_event().set()
 
 
@@ -1186,7 +1190,7 @@ def rumi_demand(model_instance_path: str,
               help="Name of the energy carrier",
               default=None)
 @click.option("-l", "--logger_level",
-              help="Level for logging: one of INFO, WARN, DEBUG or ERROR (default: INFO)",
+              help="Level for logging: one of  DEBUG, INFO, WARN or ERROR (default: INFO)",
               default="INFO")
 @click.option("-t", "--numthreads",
               help="Number of threads/processes (default: 2)",

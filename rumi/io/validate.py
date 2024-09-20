@@ -13,14 +13,10 @@
 # limitations under the License.
 """Python module to validate Rumi model instance data. 
 """
-import logging
+
 import sys
 import click
-from rumi.io import config
-from rumi.io.logger import init_logger
 from rumi.io import loaders
-
-global logger
 
 
 def rumi_validate(param_type: str,
@@ -52,7 +48,7 @@ def rumi_validate(param_type: str,
 @click.option("-s", "--scenario",
               help="Name of the scenario")
 @click.option("-l", "--logger_level",
-              help="Level for logging: one of INFO, WARN, DEBUG or ERROR (default: INFO)",
+              help="Level for logging: one of  DEBUG, INFO, WARN or ERROR (default: INFO)",
               default="INFO")
 @click.option("-t", "--numthreads",
               help="Number of threads/processes (default: 2)",

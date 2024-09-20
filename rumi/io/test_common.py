@@ -53,3 +53,17 @@ def test_valid_geography(monkeypatch):
                        'SubGeography1': ['NORTH', 'NORTH', 'SOUTH', 'SOUTH'],
                        'SubGeography2': ['UP', 'BIHAR', 'KERAL', 'KARNATAKA']})
     assert common.valid_geography(df)
+
+    df = pd.DataFrame({'x': [1, 2, 3, 4],
+                       "Year":[2021]*4,
+                       'ModelGeography': ['INDIA']*4,
+                       'SubGeography1': ['NORTH', 'NORTH', 'SOUTH', 'SOUTH'],
+                       'SubGeography2': ['UP', 'BIHAR', 'KERAL', 'KARNATAKA']})
+    assert common.valid_geography(df)
+
+    df = pd.DataFrame({'x': [1, 2, 3, 4],
+                       "Year": [2021]*4,
+                       'ModelGeography': ['INDIA']*4,
+                       'SubGeography1': ['NORTH', 'SOUTH']*2,
+                       'SubGeography2': ['BIHAR', 'KERAL', 'UP', 'KARNATAKA']})
+    assert common.valid_geography(df)
