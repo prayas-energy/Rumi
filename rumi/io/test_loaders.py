@@ -18,6 +18,7 @@ from rumi.io import loaders
 from rumi.io import filemanager
 from rumi.io import config
 from rumi.io.test_config import configmanager
+from rumi.io.test_filemanager import clear_filemanager_cache
 import pandas as pd
 
 
@@ -26,7 +27,8 @@ def function_for_loading():
 
 
 @pytest.fixture()
-def specs(configmanager):
+def specs(clear_filemanager_cache, configmanager):
+    loaders.get_parameter.cache_clear()
 
     s = filemanager.common_specs()
     s['TestOptional'] = dict(s['ModelPeriod'])
@@ -74,12 +76,12 @@ def test_cancat():
 
 
 def test_validate_params(specs):
-
     print(config.get_config_value("model_instance_path"), "X"*10)
     print(loaders.validate_params("Common"))
 
 
 def assert_model_years(ModelPeriod):
+    print(ModelPeriod, "Y"*10)
     return ModelPeriod.StartYear[0] == 2021 and ModelPeriod.EndYear[0] == 2031
 
 
@@ -209,6 +211,7 @@ def test_global_validation(specs, monkeypatch):
 
 
 def test_get_parameter(specs):
+
     ModelPeriod = loaders.get_parameter("ModelPeriod")
     assert_model_years(ModelPeriod)
 
@@ -253,3 +256,29 @@ def test_filter_param(monkeypatch):
     d = loaders.filter_param("GDP", data)
     assert len(d) == 2
     assert d.Year.values == pytest.approx([2021, 2022])
+
+
+def test_reformat_headerless():
+    d = loaders.reformat_headerless("test", {"map": True}, [["a", "b", "c", "", ""],
+                                                            ["b", "WS", "WA", ""],
+                                                            ["c", "AS", "DE"]])
+    assert d == {"a": ["b", "c"],
+                 "b": ["WS", "WA"],
+                 "c": ["AS", "DE"]}
+
+    d = loaders.reformat_headerless("test", {"list": True}, [
+                                    ["a", "b", "c", "", ""]])
+    assert d == ["a", "b", "c"]
+
+    assert loaders.reformat_headerless("test",
+                                       {},
+                                       [["A", "B", "C", ""],
+                                        ["X", "Y"]]) == [["A", "B", "C"],
+                                                         ["X", "Y"]]
+
+
+def test_strip_trailing():
+    assert loaders.strip_trailing(["","a","b","c"]) == ["", "a", "b", "c"]
+    assert loaders.strip_trailing(["","a","b",""]) == ["", "a", "b"]
+    assert loaders.strip_trailing(["","a","b","","",""]) == ["", "a", "b"]
+    assert loaders.strip_trailing(["","","",""]) == []

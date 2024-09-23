@@ -100,7 +100,7 @@ NER,AS,NE"""
     }
 
     commonpath = os.path.join(model_instance_path,
-                              "Global Data",
+                              "Default Data",
                               "Common",
                               "Parameters")
     if not os.path.exists(commonpath):
@@ -120,7 +120,7 @@ def remove_model_instance(model_instance_path):
             "GDP"]
 
     commonpath = os.path.join(model_instance_path,
-                              "Global Data",
+                              "Default Data",
                               "Common",
                               "Parameters")
 
@@ -213,7 +213,7 @@ global_validation:
     folder_structure = """
 Config:
 Documentation:
-Global Data:
+Default Data:
   Common:
     Parameters: !include Common.yml
     Source:

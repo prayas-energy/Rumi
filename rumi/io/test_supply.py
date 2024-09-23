@@ -338,7 +338,7 @@ NIGHT,22"""
                               'EnergyCarrier'}
 
     assert d['FixedTaxOH'].values == pytest.approx(
-        [sum([v*5*days for s, days in common.seasons_size().items()])]*len(d))
+        [sum([v*5 for s, days in common.seasons_size().items()])]*len(d))
     assert len(d) == 2
     # ===========================================================
 
@@ -372,3 +372,104 @@ def test_validate_units_config(monkeypatch):
 
     monkeypatch.setattr(loaders, "get_config_parameter", config_param)
     assert supply.validate_units_config('EnergyUnitConversion')
+
+
+def test_process_range():
+    start, end = 2010, 2015
+    element = f"{start}-{end}"
+    assert supply.process_range(element) == ",".join(str(i)
+                                                     for i in range(2010, 2016))
+    assert supply.process_range("text") == "text"
+
+
+def test_process_element():
+    start, end = 2010, 2015
+    element = f"{start}-{end}"
+    assert supply.process_element(element) == list(range(start, end+1))
+    assert supply.process_element("1") == [1]
+    assert supply.process_element("1.5") == pytest.approx([1.5])
+    assert supply.process_element("text") == ["text"]
+    start, end = 2015, 2010
+    element = f"{start}-{end}"
+    assert supply.process_element(element) == [element]
+
+
+def write_constraints_file(filepath, data):
+    with open(filepath, "w") as f:
+        f.write(data)
+
+
+def test_parse_user_constraints(tmp_path):
+    tmp_path.mkdir(exist_ok=True)
+    filepath = tmp_path / "UserConstraints.csv"
+
+    no_bounds = """
+1.3,EffectiveCapacityExistingInYear,RF_ATF,2025,INDIA,
+1.0,EffectiveCapacityExistingInYear,RF_HSD,2025,INDIA,
+1.0,EffectiveCapacityExistingInYear,RF_LPG,2025,INDIA,
+1.0,EffectiveCapacityExistingInYear,RF_MS,2025,INDIA,
+1.0,EffectiveCapacityExistingInYear,RF_OTHERPP,2025,INDIA,"""
+    write_constraints_file(filepath, no_bounds)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 0
+    with_bounds1 = """1.07,TotalModelCost
+1.05,AnnualCost,2021
+BOUNDS,1234,4321"""
+    write_constraints_file(filepath, with_bounds1)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 1
+    assert len(constraints[0]['VECTORS']) == 2
+    with_bounds2 = """1.0,EffectiveCapacityExistingInYear,"EG_SOLARPV,EG_WIND",2025,INDIA,"ER,NER,NR,WR,SR"
+BOUNDS,500,None
+1.05,AnnualCost,2021
+1,AnnualCost,2022
+BOUNDS,None,1000"""
+    write_constraints_file(filepath, with_bounds2)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 2
+    assert len(constraints[0]['VECTORS']) == 10
+    assert len(constraints[1]['VECTORS']) == 2
+    assert constraints[0]['BOUNDS'] == (500, None)
+    assert constraints[1]['BOUNDS'] == (None, 1000)
+
+    with_bounds_both = """1.07,TotalModelCost
+1.05,AnnualCost,2021
+BOUNDS,1234,4321"""
+    write_constraints_file(filepath, with_bounds_both)
+    constraints = supply.parse_user_constraints(filepath)
+    assert constraints[0]['BOUNDS'] == (1234, 4321)
+
+    no_vector = """1.05,AnnualCost,2021
+BOUNDS,1234,4321
+BOUNDS,1234,4321"""
+    write_constraints_file(filepath, no_vector)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 2
+    assert len(constraints[0]['VECTORS']) == 1
+    assert len(constraints[1]['VECTORS']) == 0
+
+    only_bounds = """BOUNDS,1234,4321
+BOUNDS,1234,4321"""
+    write_constraints_file(filepath, only_bounds)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 2
+    assert len(constraints[0]['VECTORS']) == 0
+    assert len(constraints[1]['VECTORS']) == 0
+
+    empty = """"""
+    write_constraints_file(filepath, empty)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 0
+
+    empty_lines = """1.07,TotalModelCost
+1.05,AnnualCost,2021
+
+
+BOUNDS,1234,4321"""
+    write_constraints_file(filepath, empty_lines)
+    constraints = supply.parse_user_constraints(filepath)
+    assert len(constraints) == 1
+    assert len(constraints[0]['VECTORS']) == 2
+    assert len(constraints[0]['VECTORS'][0]) == 2
+    assert len(constraints[0]['VECTORS'][1]) == 3
+    assert constraints[0]['BOUNDS'] == (1234, 4321)

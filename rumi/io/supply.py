@@ -13,19 +13,25 @@
 # limitations under the License.
 import pandas as pd
 from rumi.io import filemanager
-from rumi.io import config
 from rumi.io import common
 from rumi.io import constant
 from rumi.io import loaders
 from rumi.io import utilities
+from rumi.io import functionstore
 import logging
-import os
+import re
 import functools
 import numpy as np
 import itertools
-import math
+import csv
+import string
+from pyomo.environ import Var
 
 logger = logging.getLogger(__name__)
+print = functools.partial(print, flush=True)
+
+CONSTRAINT_END_KEYWORD = "BOUNDS"
+COMMENT_KEYWORD = "COMMENT"
 
 
 def load_param(param_name, subfolder):
@@ -38,7 +44,7 @@ def load_param(param_name, subfolder):
     return df
 
 
-def get_filtered_parameter(param_name):
+def get_filtered_parameter(param_name, **kwargs):
     """Returns supply parameter at balancing time and balancing area.
     This function will do necessary collapsing and expansion of
     parameter data. It will do this operation on all float64 columns.
@@ -48,8 +54,8 @@ def get_filtered_parameter(param_name):
     :returns: DataFrame
 
     """
-    param_data_ = loaders.get_parameter(param_name)
-    if not isinstance(param_data_, pd.DataFrame) and param_data_ == None:
+    param_data_ = loaders.get_parameter(param_name, **kwargs)
+    if not isinstance(param_data_, pd.DataFrame) or param_data_ is None:
         return param_data_
     original_order = [c for c in param_data_.columns]
     param_data = utilities.filter_empty(param_data_)  # for test data
@@ -424,11 +430,11 @@ def check_balancing_area_src_dest(param_name, data, entity):
 
         if len(geocols_dest) != len(geocols_src):
             logger.error(
-                "In {param_name}, source and destination do not have same geographic granularity for {entity_}.")
+                f"In {param_name}, source and destination do not have same geographic granularity for {entity_}.")
             return False
         if len(geocols) != len(geocols_dest):
             logger.error(
-                "In {param_name}, geographic granularity should be of granularity {geogran} for {entity_}.")
+                f"In {param_name}, geographic granularity should be of granularity {geogran} for {entity_}.")
             return False
 
     return True
@@ -599,7 +605,8 @@ def check_retirement_capacity(ECT_LegacyRetirement, ECT_LegacyCapacity):
     groupcols = geocols + ["EnergyConvTech"]
     retirement_plan = ECT_LegacyRetirement.groupby(groupcols).sum(numeric_only=True)[
         'RetCapacity']
-    capacity = ECT_LegacyCapacity.groupby(groupcols).sum(numeric_only=True)['LegacyCapacity']
+    capacity = ECT_LegacyCapacity.groupby(groupcols).sum(
+        numeric_only=True)['LegacyCapacity']
     capacity_subset = capacity.loc[retirement_plan.index.values]
     notexceed = retirement_plan <= capacity_subset
     if all(notexceed):
@@ -658,13 +665,13 @@ def check_periodicity_coarseness(EnergyStorTechnologies):
 
 
 def check_stortech_daytypes(EnergyStorTechnologies):
-    """cheks if daytypes given in common are consistent 
+    """cheks if daytypes given in common are consistent
     with peridicity given in EnergyStorTech
 
     Parameters
     -----------
     EnergyStorTech: pd.DataFrame
-       description for arg      
+       description for arg
 
     Returns
     -------
@@ -682,3 +689,209 @@ def check_stortech_daytypes(EnergyStorTechnologies):
                     f"In EnergyStorTech, StorPeriodicity for {energy_carrier} indicates that there can not be more than one DAYTYPEs")
                 valid = False
     return valid
+
+
+def check_enduse(checkname, checkfunc, endusedemand, *args):
+    """Performs given check using checkfunc on EndUseDemandEnergy.
+    Because EndUseDemandEnergy can have multiple granularities
+    present for single EC, it needs special handling. It is done
+    using this wrapper function
+    """
+    def process_levels(data):
+        ds = []
+        cols = []
+        for l in data.colindicator.unique():
+            d = utilities.filter_empty(data.query(f"colindicator == '{l}'"))
+            ds.append(d)
+
+        return all([checkfunc(d, *args) for d in ds])
+
+    valid = True
+    for ec in endusedemand.EnergyCarrier.unique():
+        d = endusedemand.query(f"EnergyCarrier == '{ec}'").copy()
+        colindicator = d.T.eq("").apply(
+            lambda x: x.apply(lambda y: str(int(y)))).sum()
+        d['colindicator'] = colindicator
+        v = process_levels(d)
+        if not v:
+            logger.error(f"{checkname} failed for EndUseDemandEnergy for {ec}")
+        valid = valid and v
+
+    return valid
+
+
+def process_range(element):
+    """process element as a range list if integers if given else do nothing
+    """
+    pattern = re.compile(r"(?P<start>\d+)-(?P<end>\d+)")
+    match = pattern.match(element)
+    if match:
+        start = int(match.groupdict()['start'])
+        end = int(match.groupdict()['end'])
+        if start > end:
+            logger.error(
+                f"Integer range {element}, given in UserConstraints has wrong values.")
+            return element
+        else:
+            return ",".join(str(i) for i in range(start, end+1))
+    else:
+        return element
+
+
+def float_(textdata):
+    try:
+        return float(textdata)
+    except ValueError:
+        if textdata.strip().lower() == 'none':
+            return None
+        else:
+            return textdata
+
+
+def process_element(element):
+    element = process_range(element)
+
+    def numeric(item: str):
+        if item.isdigit():
+            return int(item)
+        return float_(item)
+
+    return [numeric(item) for item in element.split(",")]
+
+
+def expand_ALL(tokens, model):
+    """Expands ALL keyword from UserConstraints
+    """
+    dataframe = pd.DataFrame(getattr(model, tokens[0][0])._data.keys())
+    # this is to change column names from integers to text
+    assert len(dataframe.columns) <= 26
+    dataframe = dataframe.rename(columns=dict(zip(
+        dataframe.columns, string.ascii_uppercase)))
+    q = make_filter_query(tokens[1:-1], dataframe.columns)
+    subset = dataframe.query(q)
+    subset.insert(loc=0, column='constraint_name', value=tokens[0][0])
+    n = len(subset.columns)
+    subset.insert(loc=n, column='float_value', value=tokens[-1][0])
+    return list(subset.itertuples(index=False, name=None))
+
+
+def make_filter_query(tokens, columns):
+    queries = []
+    for item, col in zip(tokens, columns):
+        if "ALL" not in item:
+            # this or is for all ranges and comma seperated items
+            # for any token
+            q = " | ".join(f"{col} == '{i}'" if isinstance(
+                i, str) else f"{col} == {i}" for i in item)
+            queries.append(f"({q})")
+    return " & ".join(queries)
+
+
+def parse_user_constraints(filepath, model=None):
+    encoding = functionstore.get_encoding(filepath)
+    with open(filepath, encoding=encoding) as f:
+        reader = csv.reader(f)
+        constraints = []
+        constraint_rows = []
+        for n, line in enumerate(reader, start=1):
+            if len(line) >= 1:
+                if (line[0].strip().startswith(COMMENT_KEYWORD)):
+                    continue
+                if (line[0] == CONSTRAINT_END_KEYWORD):
+                    constraint = {"BOUNDS": tuple(float_(item) for item in line[1:]),
+                                  "VECTORS": constraint_rows}
+                    if not constraint_rows:
+                        logger.error(
+                            f"In UserConstraints, Line {n}, possible consecutive BOUNDS lines")
+                    constraint_rows = []
+                    constraints.append(constraint)
+                else:
+                    tokens = [process_element(item) for item in line]
+
+                    if any("ALL" in t for t in tokens):
+                        # we skip doing the product here as it will
+                        # be taken care by expand_ALL function
+                        constraint_rows.extend(expand_ALL(tokens, model))
+                    else:
+                        rows = tuple(itertools.product(*tokens))
+                        constraint_rows.extend(rows)
+        if constraint_rows:
+            logger.warning(
+                "In UserConstraints, last constraint did not end with BOUNDS")
+            logger.warning(
+                "In UserConstraints, last constraint will be ignored")
+        return constraints
+
+
+def read_user_constraints(*args, **kwargs):
+    filepath = filemanager.find_filepath("UserConstraints")
+    return parse_user_constraints(filepath, model=kwargs['model'])
+
+
+def validate_param(param_name, model):
+    specs = filemanager.get_specs(param_name)
+    data = loaders.get_parameter(param_name, model=model)
+    if data is not None:
+        return loaders.validate_param(param_name,
+                                      specs,
+                                      data,
+                                      "rumi.io.supply",
+                                      model=model)
+
+    return True
+
+
+def constraints_loop(code, user_constraints, model=None):
+    superscript = {1: "st", 2: "nd", 3: "rd"}
+    for i, c in enumerate(user_constraints, start=1):
+        try:
+            if not eval(code, globals(), locals()):
+                logger.error(
+                    f"In UserConstraints, possible error in {i}{superscript.get(i, 'th')} constraint")
+                return False
+        except Exception as e:
+            logger.exception(e)
+            return False
+    return True
+
+
+def bounds_loop(code, user_constraints, model=None):
+    """executes code for each bound for each user constraint
+    """
+    bounds = {1: "lower", 2: "upper"}
+    superscript = {1: "st", 2: "nd", 3: "rd"}
+
+    for i, c in enumerate(user_constraints, start=1):
+        for j, b in enumerate(c['BOUNDS'], start=1):
+            try:
+                if not eval(code, globals(), locals()):
+                    logger.error(
+                        f"In UserConstraints, possible error in {bounds[j]} bound in {i}{superscript.get(i, 'th')} constraint")
+                    logger.error(
+                        f"In UserConstraints, possible error in this BOUNDS line BOUNDS, {c['BOUNDS'][0]},{c['BOUNDS'][1]}")
+                    return False
+            except Exception as e:
+                logger.exception(e)
+                return False
+    return True
+
+
+def vectors_loop(code, user_constraints, model=None):
+    """executes code for each item in tuple for each user constraint
+    """
+    superscript = {1: "st", 2: "nd", 3: "rd"}
+
+    for i, c in enumerate(user_constraints, start=1):
+        for j, v in enumerate(c['VECTORS'], start=1):
+            try:
+                if not eval(code, globals(), locals()):
+                    logger.error(
+                        f"In UserConstraints, possible error in {j}{superscript.get(j, 'th')} expanded line provided for {i}{superscript.get(i, 'th')} constraint")
+                    logger.error(
+                        f"In UserConstraints, possible error in line {v}")
+
+                    return False
+            except Exception as e:
+                logger.exception(e)
+                return False
+    return True

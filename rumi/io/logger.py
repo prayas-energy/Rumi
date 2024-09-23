@@ -29,15 +29,14 @@ levels = {"INFO": logging.INFO,
 
 
 def get_log_filepath(spec_type):
-    prefix = config.get_config_value("scenario")
     location = filemanager.get_output_path(spec_type)
     format_ = "%Y-%m-%d-%H-%M"
     timestamp = datetime.datetime.now().strftime(format_)
-    return os.path.join(location, ".".join(["rumi", prefix, timestamp, "log"]))
+    return os.path.join(location, ".".join(["rumi", timestamp, "log"]))
 
 
 def listener_configurer(filename, level):
-    print("Redirecting log to ", filename)
+    print("Redirecting log to ", filename, flush=True)
     filehandler = logging.FileHandler(filename=filename, mode="w")
     formatter = logging.Formatter(
         '%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
@@ -91,3 +90,4 @@ def init_logger(spec_type, level="INFO"):
     listener.start()
     config.set_config("logger_level", level)
     worker_configurer(queue)
+    sleep(1)

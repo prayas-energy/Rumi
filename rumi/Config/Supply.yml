@@ -55,16 +55,10 @@ EndUseDemandEnergy:
   validation:
     - code: x_in_y(EnergyCarrier, concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
       message: EnergyCarrier in EndUseDemandEnergy must be one of those specified in Common but not from NonPhysicalPrimaryCarriers
-    - code: check_balancing_area('EndUseDemandEnergy',EndUseDemandEnergy, 'EnergyCarrier')
-      message: One or more EnergyCarrier in EndUseDemandEnergy is not specified at geographic granularity equal to balancing area specified in Common parameters.
-    - code: check_balancing_time('EndUseDemandEnergy',EndUseDemandEnergy, 'EnergyCarrier')
-      message: One or more EnergyCarrier in EndUseDemandEnergy is not specified at time granularity equal to balancing time specified in Common parameters.
-    - code: utilities.check_geographic_validity(EndUseDemandEnergy, 'EndUseDemandEnergy', ['EnergyCarrier'])
+    - code: check_enduse("Geographic validity", utilities.check_geographic_validity, EndUseDemandEnergy, 'EndUseDemandEnergy', ['EnergyCarrier'], True, True)
       message: Geographic columns have error in EndUseDemandEnergy
-    - code: utilities.check_time_validity(EndUseDemandEnergy, 'EndUseDemandEnergy', ['EnergyCarrier'])
+    - code: check_enduse("Time validity", utilities.check_time_validity, EndUseDemandEnergy, 'EndUseDemandEnergy', ['EnergyCarrier'], True, True)
       message: Time columns have error in EndUseDemandEnergy
-    - code: utilities.unique_across(EndUseDemandEnergy,['EnergyCarrier'])
-      message: In EndUseDemandEnergy, data for one or more EnergyCarrier has duplicate entries
     
       
 EC_InfoGranularity:
@@ -533,6 +527,8 @@ ECT_CapAddBounds:
       message: Time columns have error in ECT_CapAddBounds
     - code: utilities.unique_across(ECT_CapAddBounds,['EnergyConvTech'])
       message: In ECT_CapAddBounds, data for one or more EnergyConvTech has duplicate entries
+    - code: (MaxCapacity >= MinCapacity).sum()== len(MaxCapacity)
+      message: In ECT_CapAddBounds  MaxCapacity should be greater than or equal to MinCapacity
 # if EnergyConvtechnologies is given this has to be given and vice versa.
       
 ECT_Lifetime:
@@ -1006,6 +1002,9 @@ EST_CapAddBounds:
       message: Time columns have error in EST_CapAddBounds
     - code: utilities.unique_across(EST_CapAddBounds,['EnergyStorTech'])
       message: In EST_CapAddBounds, data for one or more EnergyStorTech has duplicate entries
+    - code: (MaxCap >= MinCap).sum()== len(MaxCap)
+      message: In EST_CapAddBounds  MaxCap should be greater than or equal to MinCap
+
 # if EnergyStortechnologies is given then this should be given and vice versa.
 
 EST_DeratingDepthOfDischarge:
@@ -1212,6 +1211,55 @@ EC_Transfers:
     - code: check_unique_ec_transfers(EC_Transfers)
       message: In EC_Transfers, data for one or more EnergyCarrier has duplicate entries
 
+
+UserConstraints:
+  filetype: csv
+  loader: rumi.io.supply.read_user_constraints
+  # this is a hack, nested here is not used as folder , but just a constraint so that
+  # validation happens with this additional argument, model
+  nested: $model
+  noheader: True
+  freeflow: True
+  optional: True
+  validation:
+    - code: len(UserConstraints) >= 1
+      message: Either UserConstraints Parameter file has no lines or there is no BOUNDS line specified
+
+    - code: constraints_loop("len(c['BOUNDS'])==2", UserConstraints, model)
+      message: BOUNDS line in UserConstraints must have exactly three items
+
+    - code: bounds_loop("isinstance(b, (float, int)) or b is None", UserConstraints, model)
+      message: Both bounds in BOUNDS line in UserConstraints have to be either a number or "None"
+
+    - code: constraints_loop("c['BOUNDS'][0] <= c['BOUNDS'][1] if (c['BOUNDS'][0] is not None) and (c['BOUNDS'][1] is not None) else True", UserConstraints)
+      message: Lower bound should be less than or equal to upper bound in every BOUNDS line of UserConstraints
+
+    - code: constraints_loop("len(c['VECTORS'])>=1", UserConstraints)
+      message: In UserConstraints, every constraint should have at least one line that is not a BOUNDS line
+
+    - code: vectors_loop("len(v)>=2", UserConstraints, model)
+      message: In UserConstraints, any line that is not a BOUNDS line must have at least two items
+    
+    - code: vectors_loop("isinstance(v[-1], (float, int))",  UserConstraints, model)
+      message: In UserConstraints, the last item in any line that is not a BOUNDS line must be numeric
+
+    - code: vectors_loop("isinstance(v[0], str)", UserConstraints, model)
+      message: In UserConstraints, the first item in any line that is not a BOUNDS line must be text
+
+    - code: vectors_loop("hasattr(model, v[0])", UserConstraints, model)
+      message: In UserConstraints, the first item in any line that is not a BOUNDS line must be valid model attribute
+
+    - code: vectors_loop("isinstance(getattr(model, v[0]), Var) if hasattr(model, v[0]) else True",  UserConstraints, model)
+      message: In UserConstraints, the first item in any line that is not a BOUNDS line must be valid model output
+
+    - code: vectors_loop("getattr(model, v[0]).dim() == len(v)-2 if hasattr(model, v[0]) and isinstance(getattr(model, v[0]), Var) else True", UserConstraints, model)
+      message: In UserConstraints, number of items provided in some line that is not a BOUNDS line is incorrect
+      
+    - code: vectors_loop("v[1:-1] in getattr(model, v[0])._data.keys() if len(v)>=4 and hasattr(model, v[0]) and isinstance(getattr(model, v[0]), Var) else True" , UserConstraints, model) 
+      message: In UserConstraints, the items provided in some line that is not a BOUNDS line have incorrect values
+      
+    - code: vectors_loop("v[1] in getattr(model, v[0])._data.keys() if len(v)==3 and hasattr(model, v[0]) and isinstance(getattr(model, v[0]), Var) else True", UserConstraints, model)
+      message: In UserConstraints, the item provided in some line that is not a BOUNDS line has incorrect value
 
       
 global_validation:

@@ -170,12 +170,14 @@ Following help message lists the entire set of arguments:
    -m/--model_instance_path and -s/--scenario are mandatory arguments, while the
    others are optional.
    
-    if demand_sector, energy_service, energy_carrier options are provided, demand
-    will be computed only for given demand_sector, energy_service, energy_carrier
-    combinations. If these parameters are not given (none of them),
-    then demand will be processed for all demand_sector, energy_service and
-    energy_carrier combinations.
+    if demand_sector, energy_service, energy_carrier options are provided,
+    demand will be computed only for given demand_sector, energy_service,
+    energy_carrier combinations. If these parameters are not given (none of
+    them), then demand will be processed for all demand_sector, energy_service
+    and energy_carrier combinations.
 
+    if only demand_sector is provided but not energy_service and energy_carrier
+    then complete run performed only for given demand_sector
  
  Options:
    -m, --model_instance_path TEXT  Path of the model instance root folder

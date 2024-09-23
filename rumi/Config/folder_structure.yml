@@ -13,7 +13,7 @@
 # limitations under the License.
 Config:
 Documentation:
-Global Data:
+Default Data:
   Common:
     Parameters: !include Common.yml
     Source:

@@ -55,6 +55,12 @@ OUTPUT_FOLDER_NAME = "Output"
 PARAM_FOLDER_NAME = "Run-Inputs"
 VAR_FOLDER_NAME = "Run-Outputs"
 
+def script_exit(exit_code):
+    logger.info("Exit")
+    logging.shutdown()
+    shutil.copy(LOGFILE_NAME, output_folder_path)
+    sys.exit(exit_code)
+
 def parse_arguments():
     parser = ArgumentParser(description = "Supply processing for the given model")
 
@@ -157,7 +163,7 @@ if (output_folder_path.is_dir()):
 
     user_input = input("Enter Y or y to continue; anything else to cancel: ")
     if user_input.strip().lower()[:1] != "y":
-        sys.exit(1)
+        script_exit(1)
     print()
 
 output_path_param = output_folder_path / PARAM_FOLDER_NAME
@@ -177,7 +183,7 @@ symbolic_solver_labels = process_config_params()
 
 if (solver_name is None):
     print("ERROR: No solver specified")
-    sys.exit(-1)
+    script_exit(-1)
 
 
                         #########################################
@@ -185,10 +191,20 @@ if (solver_name is None):
                         #########################################
 
 def validate_params():
-    logger.info("Validation of Common Parameters")
-    common_validation_ret_val = loaders.validate_params("Common")
-    logger.info("Validation of Supply Parameters")
-    supply_validation_ret_val = loaders.validate_params("Supply")
+    try:
+        logger.info("Validation of Common Parameters")
+        common_validation_ret_val = loaders.validate_params("Common")
+    except Exception as e:
+        logger.exception(e)
+        common_validation_ret_val = False
+
+    try:
+        logger.info("Validation of Supply Parameters")
+        supply_validation_ret_val = loaders.validate_params("Supply")
+    except Exception as e:
+        logger.exception(e)
+        supply_validation_ret_val = False
+
 #    logger.info("Validation of Config Parameters")
 #    config_validation_ret_val = loaders.validate_params("Config")
 
@@ -200,15 +216,15 @@ common_validation_ret_val, supply_validation_ret_val = validate_params()
 
 if (common_validation_ret_val == False):
     print("ERROR: Common parameters validation failed")
-    sys.exit(-1)
+    script_exit(-1)
 
 if (supply_validation_ret_val == False):
     print("ERROR: Supply parameters validation failed")
-    sys.exit(-1)
+    script_exit(-1)
 '''
 if (config_validation_ret_val == False):
     print("ERROR: Config parameters validation failed")
-    sys.exit(-1)
+    script_exit(-1)
 '''
 
                          #########################################
@@ -244,8 +260,9 @@ PPEC_PARAM_NAME = "PhysicalPrimaryCarriers"
 NPPEC_PARAM_NAME = "NonPhysicalPrimaryCarriers"
 PDEC_PARAM_NAME = "PhysicalDerivedCarriers"
 NPDEC_PARAM_NAME = "NonPhysicalDerivedCarriers"
+PPEC_ENERGYDENSITY_PARAM_NAME = "PhysicalPrimaryCarriersEnergyDensity"
+PDEC_ENERGYDENSITY_PARAM_NAME = "PhysicalDerivedCarriersEnergyDensity"
 UNMET_DEMAND_VALUE_PARAM_NAME = "UnmetDemandValue"
-ENERGYUNIT_PARAM_NAME = "EnergyUnit"
 ENERGYUNITCONV_PARAM_NAME = "EnergyUnitConversion"
 
 STARTYEAR_COLUMN_NAME = "StartYear"
@@ -327,6 +344,12 @@ EST_EFFICIENCYCOST_PARAM_NAME = "EST_EfficiencyCost"
 EST_LEGACYDETAILS_PARAM_NAME = "EST_LegacyDetails"
 EC_TRANSFERS_PARAM_NAME = "EC_Transfers"
 ENDUSE_DEMANDENERGY_PARAM_NAME = "EndUseDemandEnergy"
+
+USERCONSTRAINTS_PARAM_NAME = "UserConstraints"
+
+CONSTRAINT_DICT_VECTORS_KEY = "VECTORS"
+CONSTRAINT_DICT_BOUNDS_KEY = "BOUNDS"
+USER_CONSTRAINT_NAME_PREFIX = "UserConstraint#"
 
 NONENERGYSHARE_COLUMN_NAME = "NonEnergyShare"
 DOMESTICPRICE_COLUMN_NAME = "DomesticPrice"
@@ -566,6 +589,10 @@ def get_common_params_data(m):
     m.nppec_data: pd.DataFrame = get_param(NPPEC_PARAM_NAME, COMMON_PARAM)
     m.pdec_data: pd.DataFrame = get_param(PDEC_PARAM_NAME, COMMON_PARAM)
     m.npdec_data: pd.DataFrame = get_param(NPDEC_PARAM_NAME, COMMON_PARAM)
+    m.ppec_energy_density_data: pd.DataFrame = \
+                    get_param(PPEC_ENERGYDENSITY_PARAM_NAME, COMMON_PARAM)
+    m.pdec_energy_density_data: pd.DataFrame = \
+                    get_param(PDEC_ENERGYDENSITY_PARAM_NAME, COMMON_PARAM)
     m.unmet_demand_value_data: pd.DataFrame = \
                     get_param(UNMET_DEMAND_VALUE_PARAM_NAME, COMMON_PARAM)
 
@@ -576,6 +603,12 @@ def get_common_params_data(m):
     m.ppec_data_dict = m.ppec_data.set_index(ENERGYCARRIER_COLUMN_NAME).to_dict()
     m.pdec_data_dict = m.pdec_data.set_index(ENERGYCARRIER_COLUMN_NAME).to_dict()
     m.npdec_data_dict = m.npdec_data.set_index(ENERGYCARRIER_COLUMN_NAME).to_dict()
+    m.ppec_energy_density_data_dict = m.ppec_energy_density_data.set_index(
+                                                [ENERGYCARRIER_COLUMN_NAME, 
+                                                 YEAR_COLUMN_NAME]).to_dict()
+    m.pdec_energy_density_data_dict = m.pdec_energy_density_data.set_index(
+                                                [ENERGYCARRIER_COLUMN_NAME, 
+                                                 YEAR_COLUMN_NAME]).to_dict()
     m.unmet_demand_value_data_dict = m.unmet_demand_value_data.set_index(
                                                 [ENERGYCARRIER_COLUMN_NAME, 
                                                  YEAR_COLUMN_NAME]).to_dict()
@@ -646,6 +679,8 @@ def print_common_params_data(m):
     print(m.nppec_data)
     print(m.pdec_data)
     print(m.npdec_data)
+    print(m.ppec_energy_density_data)
+    print(m.pdec_energy_density_data)
     print(m.unmet_demand_value_data)
     print(m.ect_data)
     print(m.est_data)
@@ -790,17 +825,21 @@ def get_supply_params_data(m):
     m.end_use_demand_energy: pd.DataFrame = \
         get_param(ENDUSE_DEMANDENERGY_PARAM_NAME, SUPPLY_PARAM)
     
-    m.ec_demand_conv_map: Dict[str: float] = \
+    m.ec_demand_conv_map: Dict[(str, int): float] = \
     {
-        **m.ppec_data_dict[DOMENERGYDENSITY_COLUMN_NAME],
-        **m.pdec_data_dict[ENERGYDENSITY_COLUMN_NAME],
-        **dict.fromkeys(list(m.npdec_data[ENERGYCARRIER_COLUMN_NAME]), 1)
+        **m.ppec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME],
+        **m.pdec_energy_density_data_dict[ENERGYDENSITY_COLUMN_NAME],
+        **dict.fromkeys([(ec, yr)
+                         for ec in list(m.npdec_data[ENERGYCARRIER_COLUMN_NAME])
+                         for yr in list(range(m.StartYear, m.EndYear + 1))
+                        ], 1)
     }
 
     m.end_use_demand_energy[ENDUSEDEMAND_COLUMN_NAME] = \
         m.end_use_demand_energy[ENDUSEDEMANDENERGY_COLUMN_NAME] / \
-        m.end_use_demand_energy[ENERGYCARRIER_COLUMN_NAME].map(m.ec_demand_conv_map)
-    
+        pd.MultiIndex.from_frame(
+            m.end_use_demand_energy[[ENERGYCARRIER_COLUMN_NAME, YEAR_COLUMN_NAME]]).map(m.ec_demand_conv_map)
+
     m.end_use_demand_energy_dict = \
         m.end_use_demand_energy.set_index(m.ec_time_geog_column_list).to_dict()
 
@@ -1048,6 +1087,11 @@ if (model.num_geography_levels_to_use > 3):
     model.SubGeog3AllValues = Set(initialize = get_subgeog3_all_values_list,
                                   ordered = True)
 
+model.TimeLevel = Set(initialize = RangeSet(model.num_time_levels_to_use),
+                                            ordered = Set.SortedOrder)
+model.GeogLevel = Set(initialize = RangeSet(model.num_geography_levels_to_use),
+                                            ordered = Set.SortedOrder)
+
 model.DummyTime = Set(initialize = [DUMMY_TIME_STR])
 model.DummyGeog = Set(initialize = [DUMMY_GEOG_STR])
 
@@ -1187,10 +1231,37 @@ def get_bal_area_set(m, ec):
     if (bal_area_inp == BALAREA_SG3_STR):
         return m.BalAreaSG3
 
+def get_upto_bal_time_set(m, ec):
+    bal_time_inp = get_bal_time_inp(ec)
+    if (bal_time_inp == BALTIME_YR_STR):
+        return m.BalTimeYr
+    if (bal_time_inp == BALTIME_SE_STR):
+        return m.BalTimeYr | m.BalTimeSe
+    if (bal_time_inp == BALTIME_DT_STR):
+        return m.BalTimeYr | m.BalTimeSe | m.BalTimeDT
+    if (bal_time_inp == BALTIME_DS_STR):
+        return m.BalTimeYr | m.BalTimeSe | m.BalTimeDT | m.BalTimeDS
+
+def get_upto_bal_area_set(m, ec):
+    bal_area_inp = get_bal_area_inp(ec)
+    if (bal_area_inp == BALAREA_MG_STR):
+        return m.BalAreaMG
+    if (bal_area_inp == BALAREA_SG1_STR):
+        return m.BalAreaMG | m.BalAreaSG1
+    if (bal_area_inp == BALAREA_SG2_STR):
+        return m.BalAreaMG | m.BalAreaSG1 | m.BalAreaSG2
+    if (bal_area_inp == BALAREA_SG3_STR):
+        return m.BalAreaMG | m.BalAreaSG1 | m.BalAreaSG2 | m.BalAreaSG3
+
 def get_bt_ba(m, ec):
     bal_time_set = get_bal_time_set(m, ec)
     bal_area_set = get_bal_area_set(m, ec)
     return bal_time_set * bal_area_set
+
+def get_upto_bt_upto_ba(m, ec):
+    upto_bal_time_set = get_upto_bal_time_set(m, ec)
+    upto_bal_area_set = get_upto_bal_area_set(m, ec)
+    return upto_bal_time_set * upto_bal_area_set
 
 def get_ba1_ba2(m, ec):
     bal_area_set = get_bal_area_set(m, ec)
@@ -1205,6 +1276,11 @@ def init_ec_bt_ba(m):
     return ((ec, bt_ba) 
             for ec in m.EnergyCarrier
             for bt_ba in get_bt_ba(m, ec))
+
+def init_ec_upto_bt_upto_ba(m):
+    return ((ec, upto_bt_upto_ba) 
+            for ec in m.EnergyCarrier
+            for upto_bt_upto_ba in get_upto_bt_upto_ba(m, ec))
 
 def init_ppec_bt_ba(m):
     return ((ec, bt_ba) 
@@ -1248,6 +1324,9 @@ model.EnergyCarrier = model.EnergyCarrierPrimaryPhys | \
 
 model.EC_BT_BA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
                      initialize = init_ec_bt_ba, ordered = True)
+
+model.EC_UPTOBT_UPTOBA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
+                             initialize = init_ec_upto_bt_upto_ba, ordered = True)
 
 model.PPEC_BT_BA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
                        initialize = init_ppec_bt_ba, ordered = True)
@@ -1453,10 +1532,48 @@ def get_bal_time_conc_set(m, ec):
                            (m.BalTimeDSConcActualDayNo if m.ec_day_no_reqd_map[ec] 
                                                        else m.BalTimeDSConcDummyDayNo)
 
+def get_upto_bal_time_conc_set(m, ec):
+    bal_time_inp = get_bal_time_inp(ec)
+    if (bal_time_inp == BALTIME_YR_STR):
+        return m.BalTimeYr if (not m.day_no_time_elem_reqd) else m.BalTimeYrConc
+    if (bal_time_inp == BALTIME_SE_STR):
+        return m.BalTimeYr | m.BalTimeSe if (not m.day_no_time_elem_reqd) \
+                                         else m.BalTimeYrConc | m.BalTimeSeConc
+    if (bal_time_inp == BALTIME_DT_STR):
+        return m.BalTimeYr | m.BalTimeSe | m.BalTimeDT \
+               if (not m.day_no_time_elem_reqd) else \
+               (m.BalTimeYrConc | m.BalTimeSeConc | m.BalTimeDTConcActualDayNo 
+                if m.ec_day_no_reqd_map[ec] else 
+                m.BalTimeYrConc | m.BalTimeSeConc | m.BalTimeDTConcDummyDayNo)
+    if (bal_time_inp == BALTIME_DS_STR):
+        return m.BalTimeYr | m.BalTimeSe | m.BalTimeDT | m.BalTimeDS \
+               if (not m.day_no_time_elem_reqd) else \
+               (m.BalTimeYrConc | m.BalTimeSeConc | m.BalTimeDTConcActualDayNo | m.BalTimeDSConcActualDayNo 
+                if m.ec_day_no_reqd_map[ec] else 
+                m.BalTimeYrConc | m.BalTimeSeConc | m.BalTimeDTConcDummyDayNo | m.BalTimeDSConcDummyDayNo)
+
 def get_btconc_ba(m, ec):
     bal_time_conc_set = get_bal_time_conc_set(m, ec)
     bal_area_set = get_bal_area_set(m, ec)
     return bal_time_conc_set * bal_area_set
+
+def get_upto_btconc_upto_ba(m, ec):
+    upto_bal_time_conc_set = get_upto_bal_time_conc_set(m, ec)
+    upto_bal_area_set = get_upto_bal_area_set(m, ec)
+    return upto_bal_time_conc_set * upto_bal_area_set
+
+def get_time_levels_set(ec):
+    return RangeSet(bal_time_str_level_map.get(get_bal_time_inp(ec)))
+
+def get_geog_levels_set(ec):
+    return RangeSet(bal_area_str_level_map.get(get_bal_area_inp(ec)))
+
+def get_time_lvl_geog_lvl_btconc_ba(m, ec):
+    time_levels_set = get_time_levels_set(ec)
+    geog_levels_set = get_geog_levels_set(ec)
+    bal_time_conc_set = get_bal_time_conc_set(m, ec)
+    bal_area_set = get_bal_area_set(m, ec)
+    return time_levels_set * geog_levels_set * bal_time_conc_set * bal_area_set
 
 def get_btconc_ba1_ba2(m, ec):
     bal_time_conc_set = get_bal_time_conc_set(m, ec)
@@ -1467,6 +1584,16 @@ def init_ec_btconc_ba(m):
     return ((ec, btconc_ba) 
             for ec in m.EnergyCarrier
             for btconc_ba in get_btconc_ba(m, ec))
+
+def init_ec_upto_btconc_upto_ba(m):
+    return ((ec, upto_btconc_upto_ba) 
+            for ec in m.EnergyCarrier
+            for upto_btconc_upto_ba in get_upto_btconc_upto_ba(m, ec))
+
+def init_ec_time_lvl_geog_lvl_btconc_ba(m):
+    return ((ec, time_lvl_geog_lvl_btconc_ba) 
+            for ec in m.EnergyCarrier
+            for time_lvl_geog_lvl_btconc_ba in get_time_lvl_geog_lvl_btconc_ba(m, ec))
 
 def init_ppec_btconc_ba(m):
     return ((ec, btconc_ba) 
@@ -1581,6 +1708,17 @@ model.EC_BTCONC_BA = Set(within = model.EnergyCarrier * model.BalTimeConc *
                                   model.BalArea,
                          initialize = init_ec_btconc_ba, ordered = True)
 
+model.EC_UPTOBTCONC_UPTOBA = Set(within = model.EnergyCarrier * model.BalTimeConc * 
+                                          model.BalArea,
+                                 initialize = init_ec_upto_btconc_upto_ba,
+                                 ordered = True)
+
+model.EC_TL_GL_BTCONC_BA = Set(within = model.EnergyCarrier * 
+                                        model.TimeLevel * model.GeogLevel * 
+                                        model.BalTimeConc * model.BalArea,
+                               initialize = init_ec_time_lvl_geog_lvl_btconc_ba,
+                               ordered = True)
+
 model.PPEC_BTCONC_BA = Set(within = model.EnergyCarrier * model.BalTimeConc * 
                                     model.BalArea,
                            initialize = init_ppec_btconc_ba, ordered = True)
@@ -1630,13 +1768,13 @@ model.EnergyUnitConv = Param(model.EU, model.EU,
 #########                   Energy Carriers                        #############
 
 def get_dom_energy_density_dict(m):
-    return m.ppec_data_dict[DOMENERGYDENSITY_COLUMN_NAME]
+    return m.ppec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME]
 
 def get_imp_energy_density_dict(m):
-    return m.ppec_data_dict[IMPENERGYDENSITY_COLUMN_NAME]
+    return m.ppec_energy_density_data_dict[IMPENERGYDENSITY_COLUMN_NAME]
 
 def get_energy_density_dict(m):
-    return m.pdec_data_dict[ENERGYDENSITY_COLUMN_NAME]
+    return m.pdec_energy_density_data_dict[ENERGYDENSITY_COLUMN_NAME]
 
 def get_non_energy_share_dict(m):
     return m.pec_info_dict[NONENERGYSHARE_COLUMN_NAME]
@@ -1676,14 +1814,17 @@ model.EnergyUnit = Param(model.EnergyCarrier,
                          initialize = model.ec_energy_unit_map, within = Any)
 
 model.DomEnergyDensity = Param(model.EnergyCarrierPrimaryPhys,
+                               model.Year,
                                initialize = get_dom_energy_density_dict,
                                within = PositiveReals)
 
 model.ImpEnergyDensity = Param(model.EnergyCarrierPrimaryPhys,
+                               model.Year,
                                initialize = get_imp_energy_density_dict,
                                within = PositiveReals)
 
 model.EnergyDensity = Param(model.EnergyCarrierDerivedPhys,
+                            model.Year,
                             initialize = get_energy_density_dict,
                             within = PositiveReals)
 
@@ -1972,7 +2113,7 @@ model.MaxTransit = Param(model.EC_YR_BA1_BA2,
 def get_end_use_demand_energy_dict(m):
     return m.end_use_demand_energy_dict[ENDUSEDEMANDENERGY_COLUMN_NAME]
 
-model.EndUseDemandEnergy = Param(model.EC_BT_BA, 
+model.EndUseDemandEnergy = Param(model.EC_UPTOBT_UPTOBA, 
                                  initialize = get_end_use_demand_energy_dict,
                                  within = NonNegativeReals, default = 0.0)
 
@@ -2026,11 +2167,12 @@ def get_end_use_demand(m, ec, *args):       #args = btconc_ba
     btconc = args[0 : m.num_conc_time_colms]
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
     bt = (btconc[0 : 2] + btconc[3 : ]) if m.day_no_time_elem_reqd else btconc
+    yr = btconc[0]
     
     if ec in m.EnergyCarrierPrimaryPhys:
-        return m.EndUseDemandEnergy[ec, bt, ba] / m.DomEnergyDensity[ec]
+        return m.EndUseDemandEnergy[ec, bt, ba] / m.DomEnergyDensity[ec, yr]
     elif ec in m.EnergyCarrierDerivedPhys:
-        return m.EndUseDemandEnergy[ec, bt, ba] / m.EnergyDensity[ec]
+        return m.EndUseDemandEnergy[ec, bt, ba] / m.EnergyDensity[ec, yr]
     else:
         return m.EndUseDemandEnergy[ec, bt, ba]
 
@@ -2177,10 +2319,10 @@ def get_ect_unit_io_output_conv_factor(m, dom_or_imp, iy, ect, yr, *args):  # ar
     oec = get_output_dec(ect)
 
     if iec in m.EnergyCarrierPrimaryPhys:
-        conv_fact = m.DomEnergyDensity[iec] if (dom_or_imp == EC_DOM_STR) \
-                                            else m.ImpEnergyDensity[iec]
+        conv_fact = m.DomEnergyDensity[iec, yr] if (dom_or_imp == EC_DOM_STR) \
+                                                else m.ImpEnergyDensity[iec, yr]
     elif iec in m.EnergyCarrierDerivedPhys:
-        conv_fact = m.EnergyDensity[iec]
+        conv_fact = m.EnergyDensity[iec, yr]
     else:
         conv_fact = 1
 
@@ -2189,11 +2331,32 @@ def get_ect_unit_io_output_conv_factor(m, dom_or_imp, iy, ect, yr, *args):  # ar
     conv_fact *= m.EnergyUnitConv[m.EnergyUnit[iec], m.EnergyUnit[oec]]
 
     if oec in m.EnergyCarrierDerivedPhys:
-        conv_fact /= m.EnergyDensity[oec]
+        conv_fact /= m.EnergyDensity[oec, yr]
 
     # conv_fact *=  (1 - m.AuxCons[ect, iy])
 
     return conv_fact
+
+def get_time_level(m, ec, btconc_elem):
+    time_level = 0
+
+    for i in range(m.num_conc_time_colms):
+        if (btconc_elem[i] != DUMMY_TIME_STR):
+            time_level += 1
+
+    if m.ec_day_no_reqd_map[ec]:
+        time_level -= 1
+
+    return time_level
+
+def get_geog_level(m, ba_elem):
+    geog_level = 0
+
+    for i in range(m.num_geog_colms):
+        if (ba_elem[i] != DUMMY_GEOG_STR):
+            geog_level += 1
+
+    return geog_level
 
 
 if (model.num_time_levels_to_use > 1):
@@ -2211,7 +2374,7 @@ if (model.num_time_levels_to_use > 3):
                                       initialize = get_dayslice_duration_dict,
                                       within = PositiveIntegers)
 
-model.EndUseDemand = Param(model.EC_BTCONC_BA, 
+model.EndUseDemand = Param(model.EC_UPTOBTCONC_UPTOBA, 
                            initialize = get_end_use_demand,
                            within = NonNegativeReals, default = 0.0)
 
@@ -2291,6 +2454,8 @@ model.OutputFromECTiyUsingImpInput = Var(model.IY_ECTFILT_BTCONC_BA,
 model.OutputFromECTiy = Var(model.IY_ECT_BTCONC_BA, within = NonNegativeReals)
 model.EndUseDemandMetByDom = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.EndUseDemandMetByImp = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
+model.EndUseDemandComponents = Var(model.EC_TL_GL_BTCONC_BA, within = NonNegativeReals)
+model.EndUseDemandVar = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 
 #########                   ECT capacity related                #############
 model.NamePlateCapacity = Var(model.InstYear, model.ECT_YR_BA, 
@@ -2820,10 +2985,12 @@ model.supply_from_ect_iy_constraint2 = Constraint(model.IY_ECT_BTCONC_BA,
     rule = supply_from_ect_iy_rule2)
 
 def end_use_demand_rule(m, ec, *args):              #args = btconc_ba
-    return (m.EndUseDemand[ec, args] == 
+    yr = args[0]
+
+    return (m.EndUseDemandVar[ec, args] == 
             m.UnmetDemand[ec, args] + m.EndUseDemandMetByDom[ec, args] + 
             m.EndUseDemandMetByImp[ec, args] * 
-            ((m.ImpEnergyDensity[ec] / m.DomEnergyDensity[ec]) 
+            ((m.ImpEnergyDensity[ec, yr] / m.DomEnergyDensity[ec, yr]) 
              if (ec in m.EnergyCarrierPrimaryPhys) else 1)
            )
 
@@ -3169,6 +3336,60 @@ def imp_stor_discharged_from_rule(m, ec, *args):            #args = btconc_ba
 model.imp_stor_discharged_from_constraint = Constraint(model.EC_BTCONC_BA, 
     rule = imp_stor_discharged_from_rule)
 
+#########                   EndUse related                      #############
+
+def end_use_demand_components_rule(m, ec, *args):            #args = btconc_ba
+    btconc = args[0 : m.num_conc_time_colms]
+    ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+
+    tl = get_time_level(m, ec, btconc)
+    gl = get_geog_level(m, ba)
+    
+    return (m.EndUseDemand[ec, args] ==
+            sum((m.EndUseDemandComponents[ec, tl, gl, bt_conc_comp, ba_comp] * 
+                 (1 if (tl > 2) else get_ec_scale_factor(m, ec, bt_conc_comp)))
+                for bt_conc_comp in get_bal_time_conc_set(m, ec) 
+                if is_contained_in_time(m, btconc, bt_conc_comp) 
+                for ba_comp in get_bal_area_set(m, ec) 
+                if is_contained_in_geog(m, ba, ba_comp)
+               )
+           )
+
+model.end_use_demand_components_constraint = Constraint(model.EC_UPTOBTCONC_UPTOBA, 
+    rule = end_use_demand_components_rule)
+
+def end_use_demand_var_rule(m, ec, *args):                   #args = btconc_ba
+    return (m.EndUseDemandVar[ec, args] ==
+            sum(m.EndUseDemandComponents[ec, tl, gl, args] 
+                for tl in get_time_levels_set(ec)
+                for gl in get_geog_levels_set(ec)
+               )
+           )
+
+model.end_use_demand_var_constraint = Constraint(model.EC_BTCONC_BA, 
+    rule = end_use_demand_var_rule)
+
+#########                   User specified                      #############
+
+constraint_tuples_list = []
+
+def user_constraint_rule(m, num_tuples):
+    ret_expr = 0
+
+    for tokens_tuple in constraint_tuples_list[: -1]:
+        num_tokens = len(tokens_tuple)
+
+        var = getattr(m, tokens_tuple[0])
+
+        var_index = (tokens_tuple[1:-1] if (num_tokens >= 3) else None)
+
+        ret_expr += tokens_tuple[-1] * var[var_index]
+
+    tokens_tuple = constraint_tuples_list[-1]
+    lower_bound = tokens_tuple[0]
+    upper_bound = tokens_tuple[1]
+
+    return (lower_bound, ret_expr, upper_bound)
 
                          #########################################
 #####################            End of Model Definition            #############
@@ -3204,6 +3425,33 @@ if isinstance(model, AbstractModel):
 
 delete_supply_params_data(instance)
 
+#### Validate and add user specified constraints, if any
+if (supply.validate_param(USERCONSTRAINTS_PARAM_NAME, model = instance) == False):
+    print(f"ERROR: {USERCONSTRAINTS_PARAM_NAME} parameter validation failed")
+    script_exit(-1)
+
+uc_dict_list = supply.get_filtered_parameter(USERCONSTRAINTS_PARAM_NAME, model = instance)
+
+if (uc_dict_list is not None):
+    num_uc = len(uc_dict_list)
+    print(f"{num_uc} user constraints specified")
+
+    for index, uc_dict in enumerate(uc_dict_list):
+        constraint_tuples_list = uc_dict.get(CONSTRAINT_DICT_VECTORS_KEY)
+
+        bounds_tuple = uc_dict.get(CONSTRAINT_DICT_BOUNDS_KEY)
+
+        constraint_tuples_list.append(bounds_tuple)
+
+        constraint_name = USER_CONSTRAINT_NAME_PREFIX + str(index + 1)
+        index_set = {len(constraint_tuples_list)}
+
+        setattr(instance, constraint_name, Constraint(index_set, rule = user_constraint_rule))
+
+        print("Added User Constraint :", constraint_name)
+        # getattr(instance, constraint_name).pprint()
+
+#### Create LP file for the instance and call the solver
 if (solver_executable is not None):
     opt = SolverFactory(solver_name, executable = solver_executable)
 else:
@@ -3232,8 +3480,7 @@ print("The solver returned the status: " + str(results.solver.status))
 #    (results.solver.termination_condition != TerminationCondition.optimal)):
 if (results.solver.status != SolverStatus.ok):
     logger.info("The solver returned a status of: " + str(results.solver.status))
-    logger.info("Exit")
-    sys.exit(1)
+    script_exit(1)
 
 
 # https://github.com/tum-ens/notebooks/blob/master/urbs/pyomoio.py
@@ -3308,6 +3555,7 @@ def get_param_index_attibute_name(param_obj):
     for choice in PARAM_INDEX_ATTRIBUTE_NAME_CHOICES:
         if hasattr(param_obj, choice):
              return choice
+
     print("ERROR: Pyomo version does not support any of these attributes for Param:",
           PARAM_INDEX_ATTRIBUTE_NAME_CHOICES)
     logger.info("Exit")
@@ -3317,6 +3565,7 @@ def get_var_index_attibute_name(var_obj):
     for choice in VAR_INDEX_ATTRIBUTE_NAME_CHOICES:
         if hasattr(var_obj, choice):
              return choice
+
     print("ERROR: Pyomo version does not support any of these attributes for Var:",
           VAR_INDEX_ATTRIBUTE_NAME_CHOICES)
     logger.info("Exit")
@@ -3398,9 +3647,7 @@ for var in instance.component_objects(Var, active = True):
 
     del df
 
-logger.info("Exit")
-logging.shutdown()
-shutil.copy(LOGFILE_NAME, output_folder_path)
+script_exit(1)
 
 def main():
     return None

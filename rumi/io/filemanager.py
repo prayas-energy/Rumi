@@ -65,7 +65,7 @@ def supply_specs():
 
 @functools.lru_cache(maxsize=None)
 def find_global_location(name):
-    """finds location of parameter in Global Data
+    """finds location of parameter in Default Data
     this is not complete path, it is only relative
     to model instance
     """
@@ -110,8 +110,8 @@ def get_output_path(spec_type):
     if output_path:
         output_path = get_custom_output_path(spec_type, output_path)
     else:
-        scenario_path = scenario_location()
-        output_path = os.path.join(scenario_path, spec_type, 'Output')
+        scenario_path_ = scenario_location()
+        output_path = os.path.join(scenario_path_, spec_type, 'Output')
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -162,7 +162,7 @@ def find_filepath(name, *subfolder, fileprefix=""):
     """
     prefix = config.get_config_value("model_instance_path")
     global_path = find_global_location(name)
-    possible_path = global_path.replace("Global Data",
+    possible_path = global_path.replace("Default Data",
                                         scenario_location())
     filename_ = filename(name, fileprefix)
 

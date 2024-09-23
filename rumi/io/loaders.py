@@ -15,23 +15,29 @@
 this module can depend only on python modules and functionstore,
 filemanager, config
 """
+import re
 import time
 import os
+import sys
+import time
 import csv
 import functools
 import logging
 import importlib
 import yaml
+from pathlib import Path
 import click
 import pandas as pd
 from rumi.io import config
 from rumi.io import filemanager
+from rumi.io import functionstore as fs
 from rumi.io.functionstore import transpose, column, unique, concat, x_in_y
 from rumi.io.functionstore import circular, valid_date
 from rumi.io.logger import init_logger, get_event, get_queue
 from rumi.io.multiprocessutils import execute_in_process_pool
 from rumi.io.multiprocessutils import execute_in_thread_pool
 logger = logging.getLogger(__name__)
+print = functools.partial(print, flush=True)
 
 
 class LoaderError(Exception):
@@ -51,7 +57,7 @@ def eval_(validation, g=None, l=None):
         logger.exception(e)
 
 
-def load_param(param_name: str):
+def load_param(param_name: str, **kwargs):
     """load parameter from file in RAW format
 
         Parameters
@@ -68,6 +74,12 @@ def load_param(param_name: str):
     if nested and '$' not in nested:
         subfolder = specs.get('nested')
         filepath = filemanager.find_filepath(param_name, subfolder)
+    elif nested and '$' in nested:
+        if "validation" in kwargs and kwargs['validation'] == True:
+            return None
+        subfolders = [folder.replace("$", "") for folder in nested.split(",")]
+        subfolders = [kwargs[f] for f in subfolders]
+        filepath = filemanager.find_filepath(param_name, *subfolders)
     else:
         filepath = filemanager.find_filepath(param_name)
 
@@ -84,40 +96,9 @@ def load_param(param_name: str):
         return read_csv(param_name, filepath)
 
 
-def load_dataframe(param, filepath, specs):
-    with open(filepath) as f:
-        csvf = csv.DictReader(f)
-        filecols = csvf.fieldnames
-        data = {}
-        for row in csvf:
-            columns = {k: v for k,
-                       v in specs['columns'].items() if k in filecols}
-            for key, col in columns.items():
-                if key not in row:
-                    if col.get("optional"):
-                        continue
-                    else:
-                        raise LoaderError(
-                            f"column {key} expected in {param}, but not found.")
-                else:
-                    convert = eval(columns[key]['type'])
-                    try:
-                        data.setdefault(key, []).append(
-                            convert(row[key]))
-                    except ValueError as v:
-                        logger.error(
-                            f"In {param}, could not convert {row[key]} for {key}")
-                        logger.exception(v)
-
-                        data.setdefault(key, []).append(
-                            convert(col['default']))
-        cols = [c for c in filecols if c in specs['columns']]
-        return pd.DataFrame(data)[cols]
-
-
 def param_env(data):
     env = {c: data[c] for c in data.columns}
-    #env['rows'] = data.to_dict(orient='records')
+    # env['rows'] = data.to_dict(orient='records')
 
     return env
 
@@ -202,6 +183,7 @@ def validate_param(param: str, spec: dict, data, module, **kwargs):
     logger.info(f"Validating {param}")
     valid = validate_each_item(param, spec, data)
 
+    warning = re.compile("WARNING(.+)")
     for validation in spec.get('validation', []):
         if spec.get('noheader'):
             env = {param: data}
@@ -209,20 +191,25 @@ def validate_param(param: str, spec: dict, data, module, **kwargs):
             env = param_env(data)
             env[param] = data
 
-        env.update({p: get_parameter(p) for p in spec.get("dependencies", [])})
+        env.update({p: get_parameter(p, **kwargs)
+                   for p in spec.get("dependencies", [])})
         load_module("rumi.io.functionstore", env)
         load_module(module, env)
         env.update(kwargs)
 
         env.update(globals())
         if not eval_(validation, env):
-            logger.error(f"Invalid data for {param}")
-            logger.error("{} failed".format(validation['code']))
-            # print(validation['message'].format(**env))
             message = validation['message']
-            print(eval(f"f'{message}'", env))
-            logger.error(eval(f"f'{message}'", env))
-            valid = False
+            if warning.match(validation['code']):
+                logger.warning(eval(f"f'{message}'", env))
+                valid = True
+            else:
+                logger.error(f"Invalid data for {param}")
+                logger.error("{} failed".format(validation['code']))
+                # print(validation['message'].format(**env))
+                print(eval(f"f'{message}'", env))
+                logger.error(eval(f"f'{message}'", env))
+                valid = False
 
     return valid
 
@@ -254,6 +241,9 @@ def get_params(specs, threaded=False):
         except TypeError as tpe:
             logger.debug(f"Automatic loading of {param} failed.")
             raise tpe
+        except KeyError as ke:
+            logger.debug(f"Automatic loading of {param} failed.")
+            raise ke
 
     param_names = [p for p in specs.keys() if p != 'global_validation']
     if threaded:
@@ -353,7 +343,7 @@ def validate_params(param_type):
     return global_validation(data, gvalidation) and all(valid)
 
 
-def call_loader(loaderstring, **kwargs):
+def call_function(loaderstring, **kwargs):
     functionname = loaderstring.split(".")[-1]
     module = ".".join(loaderstring.split(".")[:-1])
     m = importlib.import_module(module)
@@ -372,23 +362,46 @@ def get_config_parameter(param_name):
 def call_loader_(specs, param_name, **kwargs):
     try:
         if not specs.get('nested'):
-            d = call_loader(specs.get('loader'))
+            d = call_function(specs.get('loader'))
         elif '$' not in specs.get('nested'):
-            d = call_loader(specs['loader'],
-                            param_name=param_name,
-                            subfolder=specs.get('nested'))
+            d = call_function(specs['loader'],
+                              param_name=param_name,
+                              subfolder=specs.get('nested'))
         elif "$" in specs.get('nested'):
             if "validation" in kwargs and kwargs['validation'] == True:
                 d = None
             else:
-                d = call_loader(specs.get('loader'), **kwargs)
+                d = call_function(specs.get('loader'), **kwargs)
     except FileNotFoundError as fne:
         if specs.get('optional'):
+            logger.warning(
+                f"Unable to find file for optional parameter {param_name}")
             d = None
-            logger.warning(f"Unable to find file for optional parameter {param_name}")
+            logger.warning(
+                f"Unable to find file for optional parameter {param_name}")
         else:
             raise fne
     return d
+
+
+def get_parameter_(param_name, **kwargs):
+    """loads data without applying filter and apply_function
+    """
+    # logger.debug("Getting Parameter " + param_name + str(kwargs))
+    specs = filemanager.get_specs(param_name)
+    if specs.get('loader'):
+        d = call_loader_(specs, param_name, **kwargs)
+    else:
+        d = load_param(param_name, **kwargs)
+
+    if d is None:
+        r = d
+    elif specs.get("noheader"):
+        r = reformat_headerless(param_name, specs, d)
+    else:
+        r = d
+
+    return r
 
 
 @functools.lru_cache(maxsize=None)
@@ -419,26 +432,56 @@ def get_parameter(param_name, **kwargs):
     :returns: DataFrame or list or dictionary
 
     """
+    r = get_parameter_(param_name, **kwargs)
+    r = filter_param(param_name, r, **kwargs)
+    return apply_function(param_name, r, **kwargs)
 
-    #logger.debug("Getting Parameter " + param_name + str(kwargs))
+
+def apply_function(param_name, data, **kwargs):
+    """applies this function to parsed data before passing it to filter.
+    **kwargs has **kwargs passed from get_parameter
+    """
     specs = filemanager.get_specs(param_name)
-    if specs.get('loader'):
-        d = call_loader_(specs, param_name, **kwargs)
+    if "apply" in specs:
+        # don't skip this stage if data is none.
+        # the functions to be applied should takes care of it.
+        funcname = specs['apply']
+        if "validation" in kwargs:
+            del kwargs['validation']
+        return call_function(funcname,
+                             param_name=param_name,
+                             data=data,
+                             **kwargs)
     else:
-        d = load_param(param_name)
+        return data
 
-    if d is None:
-        r = d
-    elif specs.get("noheader"):
-        r = reformat_headerless(param_name, specs, d)
+
+def strip_trailing(row):
+    """Strips every field in the row.
+    removes trailing empty fields if any.
+    """
+    stripped = [item.strip() for item in row]
+
+    lastnonemepty_index = 0
+    for i, item in enumerate(stripped[::-1], start=1):
+        if item:
+            lastnonemepty_index = i
+            break
+
+    if lastnonemepty_index == 0:
+        return []
     else:
-        r = d
-    return filter_param(param_name, r)
+        return stripped[:len(stripped)-lastnonemepty_index+1]
 
 
 def reformat_headerless(param_name, specs, d):
     """Formate headerless data to list/dictionary/string as required
     """
+    if specs.get("freeflow"):
+        return d
+
+    # d = [[item for item in row if item.strip()] for row in d]
+    d = [strip_trailing(row) for row in d]
     if specs.get("map"):
         firstcolumn = column(d, 0)
         if not unique(firstcolumn):
@@ -461,7 +504,7 @@ def reformat_headerless(param_name, specs, d):
     return r
 
 
-def filter_param(param_name, param_data):
+def filter_param(param_name, param_data, **kwargs):
     """This functions filters parameter based on scheme given
     in yaml specifications.
 
@@ -470,14 +513,27 @@ def filter_param(param_name, param_data):
     IT MIGHT RESULT IN RECURSION ERROR.
     """
     specs = filemanager.get_specs(param_name)
-    if specs.get("filterqueries") and isinstance(param_data, pd.DataFrame):
+    if not fs.isnone(param_data) and specs.get("filterqueries"):
         logger.debug(f"Filtering parameter {param_name}")
-        dependencies = specs.get("dependencies")
-        dependencies_data = {p: get_parameter(p) for p in dependencies}
+        dependencies = specs.get("dependencies", [])
+        dependencies_data = {p: get_parameter(
+            p, **kwargs) for p in dependencies}
         queries = specs.get("filterqueries")
-        dependencies_data['param_data'] = param_data
-        queries_ = [f"( {q} )" for q in queries]
-        statement = "param_data.query(f\"{0}\")".format(" & ".join(queries_))
+        dependencies_data[param_name] = param_data
+
+        if isinstance(param_data, pd.DataFrame):
+            queries_ = [f"( {q} )" for q in queries]
+            statement = "{0}.query(f\"{1}\")".format(
+                param_name, " & ".join(queries_))
+        elif isinstance(param_data, list):
+            filters = " and ".join(queries)
+            statement = f'[item for item in {param_name} if {filters}]'
+        else:
+            filters = " and ".join(queries)
+            statement = '{' + \
+                f"key:value for key,value in {param_name}.items() if {filters}" +\
+                '}'
+        # print(statement)
         param_data = eval(statement, dependencies_data)  # .copy()
         if len(param_data) == 0:
             logger.warning(
@@ -491,16 +547,17 @@ def find_cols(filepath, columnsdata):
     find columns common between column names provided in specifications
     and those given in file.
     """
-    with open(filepath) as f:
-        csvf = csv.reader(f)
-        columnsf = next(csvf)
-        # columns as per order in file
-        return [c for c in columnsf if c in columnsdata]
+    df = pd.read_csv(filepath, nrows=1)
+    return [c for c in df.columns if c in columnsdata]
 
 
 def read_headerless_csv(param_name, filepath):
     try:
-        with open(filepath) as f:
+        encoding = fs.get_encoding(filepath)
+        if not encoding:
+            logger.warning(
+                f"The file does not seem to have text data, {filepath}")
+        with open(filepath, encoding=encoding) as f:
             csvf = csv.reader(f)
             return [row for row in csvf]
     except ValueError as v:
@@ -517,6 +574,12 @@ def read_headerless_csv(param_name, filepath):
         raise e
 
 
+def get_absent_columns(detected_cols, cols_sepc):
+    """gets columns which are compulsory in spec but absent in file"""
+    absent = {c: cols_sepc[c] for c in cols_sepc if c not in detected_cols}
+    return [c for c, data in absent.items() if not data.get("optional", False)]
+
+
 def read_csv(param_name, filepath):
     """read dataframe using pandas.read_csv, but with appropriate types
     """
@@ -525,10 +588,16 @@ def read_csv(param_name, filepath):
     converters = {c: eval(data['type']) for c, data in columndata.items()}
     try:
         cols = find_cols(filepath, columndata)
+        absentcols = get_absent_columns(cols, columndata)
+        if absentcols:
+            raise LoaderError(
+                f"Columns {absentcols} missing from parameter {param_name}")
+
         return pd.read_csv(filepath,
                            usecols=cols,
                            converters=converters,
                            na_values="")
+
     except ValueError as v:
         logger.error(f"Unable to parse data for {param_name}")
         logger.exception(v)
@@ -603,6 +672,10 @@ def rumi_validate(param_type: str,
     global logger
     config.initialize_config(model_instance_path, scenario)
     config.set_config("numthreads", str(numthreads))
+    if not Path(filemanager.scenario_path()).is_dir():
+        print(f"Scenario {scenario} does not exist.")
+        sys.exit(1)
+
 
     init_logger(param_type, logger_level)
     logger = logging.getLogger("rumi.io.loaders")
@@ -613,6 +686,9 @@ def rumi_validate(param_type: str,
         else:
             logger.error(f"{param_type} Validation failed")
             print(f"{param_type} Validation failed")
+    except Exception as e:
+        logger.exception(e)
+        print(f"{param_type} Validation failed")
     finally:
         while not get_queue().empty():
             time.sleep(1)

@@ -15,7 +15,11 @@ import pandas as pd
 from rumi.processing import demand
 from rumi.io import loaders
 from rumi.io import demand as demandio
+
 import pytest
+from rumi.io import utilities as ioutils
+from rumi.io import filemanager
+import os
 
 
 def get_GDP1(dummy):
@@ -38,6 +42,40 @@ def get_GDP2(dummy):
                                               'SubGeography2',
                                               'Year'])
     return pd.DataFrame({'GDP': [1, 2, 4, 8, 4]*2}, index=index).reset_index()
+
+
+def test_clean_output(tmp_path, monkeypatch):
+    outputfolder = tmp_path / "Output"
+    outputfolder.mkdir()
+    monkeypatch.setattr(filemanager, "get_output_path",
+                        lambda x: str(outputfolder))
+
+    demand.clean_output()
+
+    def create_file(folder, filename):
+        f = folder / filename
+        f.write_text(",".join(list("abcd")))
+
+    for item in "ABCDEF":
+        create_file(outputfolder, f"{item}.csv")
+
+    create_file(outputfolder, "something.log")
+
+    with monkeypatch.context() as m:
+        m.setattr('builtins.input', lambda prompt: "y")
+        demand.clean_output()
+
+    with monkeypatch.context() as m:
+        m.setattr('builtins.input', input)
+        demand.clean_output()
+
+    for item in "ABCDEF":
+        create_file(outputfolder, f"{item}.csv")
+
+    with pytest.raises(OSError):
+        demand.clean_output()
+
+    assert os.listdir(outputfolder)  # it will have log files
 
 
 def test_compute_gdp_rate(monkeypatch):
@@ -66,10 +104,12 @@ def test_compute_gdp_rate(monkeypatch):
     assert all(rate.columns == [12, 13, 14, 15])
 
 
-def get_parameter_gdp_demand(param_name):
+def get_parameter_gdp_demand(param_name, **kwargs):
     if param_name == "GDP":
         return get_GDP2(param_name)
-    elif param_name == "DS_ES_EC_DemandGranularity_Map":
+    elif param_name == "DS_List":
+        return ['DS']
+    elif param_name == "DS_ES_EC_Map":
         return pd.DataFrame([{'DemandSector': 'DS',
                               'EnergyService': 'ES',
                               'EnergyCarrier': 'EC',
@@ -162,23 +202,25 @@ def test_get_cons_columns(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter',
                         get_parameter_granularity_coarsest)
     conscols = demand.get_cons_columns("DS1", "ES1", "EC1")
-    assert conscols == ['ConsumerType1']
+    assert conscols == []
     conscols = demand.get_cons_columns("DS1", "ES1", "EC3")
     assert conscols == ['ConsumerType1']
 
 
-def get_parameter_granularity(param_name):
-    if param_name == "DS_ES_EC_DemandGranularity_Map":
+def get_parameter_granularity(param_name, **kwargs):
+    if param_name == "DS_ES_EC_Map":
         return pd.DataFrame([{"DemandSector": "DS1",
                               "EnergyService": "ES1",
                               "EnergyCarrier": "EC1",
                               "ConsumerGranularity": "CONSUMERALL",
                               "GeographicGranularity": "SUBGEOGRAPHY1",
                               "TimeGranularity": "SEASON"}])
+    elif param_name == "DS_List":
+        return ["DS1"]
 
 
-def get_parameter_granularity_coarsest(param_name):
-    if param_name == "DS_ES_EC_DemandGranularity_Map":
+def get_parameter_granularity_coarsest(param_name, **kwargs):
+    if param_name == "DS_ES_EC_Map":
         return pd.DataFrame([{"DemandSector": "DS1",
                               "EnergyService": "ES1",
                               "EnergyCarrier": "EC1",
@@ -199,6 +241,8 @@ def get_parameter_granularity_coarsest(param_name):
                               "TimeGranularity": "SEASON"}])
     elif param_name == 'DS_Cons1_Map':
         return {'DS1': ['SUBGEOGRAPHY2', 'YEAR', 'URBAN', 'RURAL']}
+    elif param_name == 'DS_List':
+        return ['DS1']
 
 
 def test_get_geographics_columns(monkeypatch):
@@ -224,11 +268,11 @@ def test_get_time_columns(monkeypatch):
 def test_coarsest(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter',
                         get_parameter_granularity_coarsest)
-    DS_ES_EC_DemandGranularity_Map = loaders.get_parameter(
-        'DS_ES_EC_DemandGranularity_Map')
-    cols = demand.coarsest(DS_ES_EC_DemandGranularity_Map, True)
-    assert cols == ['Year',  'ModelGeography', 'ConsumerType1']
-    cols = demand.coarsest(DS_ES_EC_DemandGranularity_Map, False)
+    DS_ES_EC_Map = loaders.get_parameter(
+        'DS_ES_EC_Map')
+    cols = demand.coarsest(DS_ES_EC_Map, True)
+    assert cols == ['Year',  'ModelGeography']
+    cols = demand.coarsest(DS_ES_EC_Map, False)
     assert cols == ['Year',  'ModelGeography']
 
 
@@ -241,3 +285,140 @@ def test_BottomupDemand(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter',
                         get_parameter_bottomup)
     # TODO
+
+
+def get_parameter_gtprofile(param_name, **kwargs):
+    if param_name == "GTProfile" and kwargs['demand_sector'] == 'DS' and kwargs['energy_service'] == "ES" and kwargs['energy_carrier'] == 'EC':
+        return ioutils.base_dataframe_all(geocols=['ModelGeography', 'SubGeography1'], timecols=['Year'], colname='GTProfile', val=1/55).reset_index()
+    elif param_name == "ModelPeriod":
+        return pd.DataFrame({"StartYear": [2021], "EndYear": [2031]})
+    elif param_name == "ModelGeography":
+        return "INDIA"
+    elif param_name == "SubGeography1":
+        return ["NE", "NR", "SR", "WR", "ER"]
+
+
+def get_demand(demand_sector, energy_service, energy_carrier):
+    return ioutils.base_dataframe_all(geocols=['ModelGeography'],
+                                      timecols=['Year'], colname='EnergyDemand',
+                                      val=100.0).reset_index()
+
+
+def test_apply_demand_profile(monkeypatch):
+    monkeypatch.setattr(loaders, "get_parameter", get_parameter_gtprofile)
+    d1 = get_demand("DS", "ES", "EC")
+    func = demand.demand_profile(get_demand)
+    d2 = func("DS", "ES", "EC")
+    assert d1['EnergyDemand'].sum() == pytest.approx(d2['EnergyDemand'].sum())
+    assert d2.groupby(['ModelGeography', 'Year']
+                      ).sum(numeric_only=True).reset_index().equals(d1)
+
+
+def test_get_coarsest(monkeypatch):
+    def compute_demand(ds, es, ec):
+        cols = {("DS", "ES", "EC1"): {"conscols": [],
+                                      "geocols": ["ModelGeography"],
+                                      "timecols": ['Year']},
+                ("DS", "ES", "EC2"): {"conscols": [],
+                                      "geocols": ["ModelGeography", 'SubGeography1'],
+                                      "timecols": ['Year']},
+                ("DS", "ES", "EC3"): {"conscols": [],
+                                      "geocols": ["ModelGeography", 'SubGeography1'],
+                                      "timecols": ['Year', 'Season']}}
+        return ioutils.base_dataframe_all(**cols[(ds, es, ec)]).reset_index()
+
+    def get_parameter(param_name, **kwargs):
+        if param_name == "ModelPeriod":
+            return pd.DataFrame([{"StartYear": 2021, "EndYear": 2022}])
+        elif param_name == "DayTypes":
+            return pd.DataFrame({"DayType": ['A', 'B'],
+                                 "Weight": [0.4, 0.6]})
+        elif param_name == "Seasons":
+            return pd.DataFrame({"Season": ["SUMMER", "MONSOON"],
+                                 "StartMonth": [4, 5],
+                                 "StartDate": [1, 31]})
+        elif param_name == "ModelGeography":
+            return "INDIA"
+        elif param_name == "SubGeography1":
+            return ["NR", "SR", "NER", "WR", "ER"]
+        elif param_name == "DaySlices":
+            return ioutils.make_dataframe("""DaySlice,StartHour
+H0,0
+H1,13""")
+
+    monkeypatch.setattr(loaders, "get_parameter", get_parameter)
+
+    assert demand.get_coarsest([("DS", "ES", "EC1"),
+                                ("DS", "ES", "EC2"),
+                                ("DS", "ES", "EC3")],
+                               data_loader=compute_demand) == ['Year', 'ModelGeography']
+
+    assert demand.get_finest([("DS", "ES", "EC1"),
+                              ("DS", "ES", "EC2"),
+                              ("DS", "ES", "EC3")],
+                             data_loader=compute_demand) == ['Year', 'Season',
+                                                             'ModelGeography', 'SubGeography1']
+
+
+def test_sum_series():
+    ss = [pd.Series([1]*10) for i in range(5)]
+    s = pd.Series([5]*10)
+
+    assert demand.sum_series(ss).values == pytest.approx([5]*10)
+
+    assert demand.sum_series([]) == 0
+
+
+def test_get_output_filepath(monkeypatch, tmp_path):
+    outputfolder = tmp_path / "Output"
+    outputfolder.mkdir()
+
+    monkeypatch.setattr(filemanager, "get_output_path",
+                        lambda x: str(outputfolder))
+
+    entity_names = ("ServiceTech",)
+    entity_values = ("ST",)
+    expected = outputfolder / "TotalNumInstances" / "TotalNumInstances_ST.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values) == str(expected)
+
+    entity_names = ("EnergyCarrier",)
+    entity_values = ("EC",)
+    expected = outputfolder / "EnergyCarrier" / "EC_Demand.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values) == str(expected)
+
+    entity_names = ("DemandSector", "EnergyService", "EnergyCarrier")
+    entity_values = ("DS", "ES", "EC")
+    expected = outputfolder / "DemandSector" / "DS" / "ES" / "DS_ES_EC_Demand.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values) == str(expected)
+
+    entity_names = ("DemandSector", "EnergyService",
+                    "ServiceTech", "EnergyCarrier")
+    entity_values = ("DS", "ES", "ST", "EC")
+    expected = outputfolder / "DemandSector" / \
+        "DS" / "ES" / "DS_ES_ST_EC_Demand.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values) == str(expected)
+
+    entity_names = ("EnergyService", "EnergyCarrier")
+    entity_values = ("ES", "EC")
+    expected = outputfolder / "EnergyService" / "ES" / "ES_EC_Demand.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values) == str(expected)
+
+    expected = outputfolder / "EndUseDemandEnergy.csv"
+    assert demand.get_output_filepath(None, None) == str(expected)
+
+    entity_names = ("DemandSector", "EnergyCarrier")
+    entity_values = ("DS", "EC")
+    expected = outputfolder / "DemandSector" / "DS" / "DS_EC_Demand.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values) == str(expected)
+
+    entity_names = ("DemandSector", "EnergyCarrier")
+    entity_values = ("DS", "EC")
+    expected = outputfolder / "DemandSector" / "DS" / "DS_EC_ES_ST_Demand.csv"
+    assert demand.get_output_filepath(
+        entity_names, entity_values, "ES_ST") == str(expected)

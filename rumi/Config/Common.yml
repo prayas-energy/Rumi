@@ -191,6 +191,37 @@ PhysicalPrimaryCarriers:
     - code: all(ImpEnergyDensity > 0)
       message: DomEnergyDensity on PhysicalPrimaryCarriers should be a positive real number
 
+PhysicalPrimaryCarriersEnergyDensity:
+  filetype: csv
+  optional: True
+  apply: rumi.io.common.expand_energy_density
+  columns:
+    EnergyCarrier:
+      type: str
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    ImpEnergyDensity:
+      type: float
+    DomEnergyDensity:
+      type: float
+  dependencies:
+    - PhysicalPrimaryCarriers
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: x_in_y(EnergyCarrier, PhysicalPrimaryCarriers.EnergyCarrier)
+      message: Every value in EnergyCarrier column in PhysicalPrimaryCarriersEnergydensity should be present in PhysicalPrimaryCarriers
+    - code: check_year_data("PhysicalPrimaryCarriersEnergyDensity", "EnergyCarrier")
+      message: In PhysicalPrimaryCarriersEnergyDensity, for each EnergyCarrier it is necessary to give data for correct unique years as mentioned in ModelPeriod
+    - code: all(DomEnergyDensity > 0)
+      message: DomEnergyDensity in PhysicalPrimaryCarriersEnergyDensity should be a positive real number
+    - code: all(ImpEnergyDensity > 0)
+      message: DomEnergyDensity on PhysicalPrimaryCarriersEnergyDensity should be a positive real numb    
+    
 NonPhysicalPrimaryCarriers:
   filetype: csv
   axis: column
@@ -230,7 +261,35 @@ PhysicalDerivedCarriers:
     - code: all(EnergyDensity > 0)
       message: EnergyDensity in PhysicalDerivedcarriers should be a positive real number
 
-
+      
+PhysicalDerivedCarriersEnergyDensity:
+  filetype: csv
+  optional: True
+  apply: rumi.io.common.expand_energy_density
+  columns:
+    EnergyCarrier:
+      type: str
+    Year:
+      type: int
+      min: 2000
+      max: 2100
+    EnergyDensity:
+      type: float
+      min: 0.0
+  dependencies:
+    - PhysicalDerivedCarriers
+    - ModelPeriod
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: x_in_y(EnergyCarrier, PhysicalDerivedCarriers.EnergyCarrier)
+      message: Every value in EnergyCarrier column in PhysicalDerivedCarriersEnergyDensity should be present in PhysicalDerivedCarriers
+    - code: check_year_data("PhysicalDerivedCarriersEnergyDensity", "EnergyCarrier")
+      message: In PhysicalDerivedCarriersEnergyDensity, for each EnergyCarrier it is necessary to give data for correct unique years as mentioned in ModelPeriod
+    - code: all(EnergyDensity > 0)
+      message: EnergyDensity in PhysicalDerivedCarriersEnergyDensity should be a positive real number
+      
 
 NonPhysicalDerivedCarriers:
   filetype: csv
@@ -256,13 +315,17 @@ NonPhysicalDerivedCarriers:
 
 PhysicalCarrierEmissions:
   filetype: csv
-  axis: row
   optional: True
+  apply: rumi.io.common.expand_carrier_emissions
   columns:
     EnergyCarrier:
       type: str
     EmissionType:
       type: str
+    Year:
+      type: int
+      min: 2000
+      max: 2100
     DomEmissionFactor:
       type: float
       min: 0
@@ -270,15 +333,21 @@ PhysicalCarrierEmissions:
       type: float
       min: 0
   dependencies:
+    - ModelPeriod
     - EmissionTypes
     - PhysicalPrimaryCarriers
     - PhysicalDerivedCarriers
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
   validation:
+    - code: first_year_present(PhysicalCarrierEmissions)
+      message: In PhysicalCarrierEmissions for every EnergyCarrier and EmissionType data for first year of ModelPeriod is compulsory but is missing.
     - code: x_in_y(x=EnergyCarrier, y=concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'),get_col(PhysicalDerivedCarriers,'EnergyCarrier')))
       message: EnergyCarrier in PhysicalCarrierEmissions should be from PhysicalPrimaryCarriers or PhysicalDerivedCarriers
     - code: x_in_y(x=PhysicalCarrierEmissions.EmissionType, y=get_col(EmissionTypes,'EmissionType'))
       message: In PhysicalCarrierEmissions, EmissionType should be one of the defined emission types from EmissionTypes
-    - code: unique(list(zip(EnergyCarrier.values, EmissionType.values)))
+    - code: unique(list(zip(EnergyCarrier.values, EmissionType.values, Year.values)))
       message: In PhysicalCarrierEmissions combination of EnergyCarrier and EmissionType can not be repeated
 
       
@@ -403,7 +472,7 @@ GDP:
     - code: one_to_one(Year, range(ModelPeriod.StartYear.iloc[0]-1, ModelPeriod.EndYear.iloc[0]+1))
       message: GDP should have data for all years starting from one year before ModelPeriod
     - code: valid_geography(GDP)
-      message: Geography specified in Demographics is invalid or incomplete
+      message: Geography specified in parameter GDP is invalid or incomplete
 
     
 global_validation:

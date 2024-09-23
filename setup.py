@@ -21,7 +21,7 @@ def requirements():
 
 setup(
     name="rumi",
-    version="1.2.0",
+    version="2.0.0",
     description="Rumi, An Open Source Energy Modelling Platform",
     long_description="README.md",
     long_description_content_type="text/markdown",

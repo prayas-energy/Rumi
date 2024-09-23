@@ -14,7 +14,6 @@
 """This is postprocessing run after demand and supply processing is run.
 Currently computation of emissions is supported.
 """
-import time
 import os
 import logging
 import functools
@@ -23,7 +22,6 @@ import pandas as pd
 import numpy as np
 from rumi.io import loaders
 from rumi.io import system
-from rumi.io.logger import init_logger, get_event
 from rumi.io import config
 from rumi.io import constant
 from rumi.io import filemanager
@@ -32,6 +30,7 @@ from rumi.io import supply
 from rumi.io import demand as demandio
 from rumi.io import functionstore as fs
 from rumi.processing import utilities as putils
+from rumi.processing import emission
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +104,6 @@ def get_demand_output_path():
 def read_supply_output(output_name):
     path = get_supply_output_path()
     logger.debug(f"Reading supply output {output_name} from  {path}")
-    return pd.read_csv(os.path.join(path, ".".join([output_name, "csv"])))
-
-
-def read_demand_output(output_name):
-    path = get_demand_output_path()
-    logger.debug(f"Reading demand output {output_name} from  {path}")
     return pd.read_csv(os.path.join(path, ".".join([output_name, "csv"])))
 
 
@@ -215,9 +208,9 @@ def season_wise(data, colname):
     data['NumDays'] = data['Season'].map(d)
 
     DayTypes = loaders.get_parameter("DayTypes")
-    DayTypes = pd.concat([DayTypes, pd.DataFrame({"DayType": [np.NaN],
-                                                  "Weight": [1]})])
-
+    DayTypes = pd.concat([DayTypes,
+                          pd.DataFrame({"DayType": [np.NaN],
+                                        "Weight": [1]})]).reset_index(drop=True)
     data = data.merge(DayTypes)
 
     data['multiplier'] = np.ones_like(data[colname].values)
@@ -250,7 +243,7 @@ def combine_emission_data(ECT_EmissionDetails,
 
     if isinstance(PhysicalCarrierEmissions, pd.DataFrame):
         x = PhysicalCarrierEmissions.merge(ect, on="EnergyCarrier")
-
+        del x['Year']
         ModelPeriod = loaders.get_parameter("ModelPeriod")
         InstYear = pd.Series(range(ModelPeriod.StartYear.iloc[0]-1,
                                    ModelPeriod.EndYear.iloc[0]+1),
@@ -310,48 +303,6 @@ def get_ectemissions_column_order(emissions):
     return othercols + geocols + timecols + ["Emission"]
 
 
-def check_enduse():
-    """checks if one of ST_EmissionDetails or PhysicalCarrierEmissions exists
-    and also if the supply outputs required to calculate EndUseEmissions exist
-    """
-    PhysicalCarrierEmissions = loaders.get_parameter(
-        "PhysicalCarrierEmissions")
-    valid = isinstance(PhysicalCarrierEmissions, pd.DataFrame)
-
-    if not valid:
-        ds_es_ec_st = get_physical_bottomup_ds_es_ec_st()
-        ds_bottomup_set = {tup[0] for tup in ds_es_ec_st}
-
-        for ds in ds_bottomup_set:
-            ST_EmissionDetails = loaders.get_parameter("ST_EmissionDetails",
-                                                       demand_sector=ds)
-            if isinstance(ST_EmissionDetails, pd.DataFrame):
-                valid = True
-                break
-
-    if not valid:
-        logger.warning(
-            "At least one of ST_EmissionDetails or PhysicalCarrierEmissions should be present, for EndUseEmissions computation")
-        logger.warning(
-            "Skipping EndUseEmissions computation as neither ST_EmissionDetails nor PhysicalCarrierEmissions is present")
-        print(
-            "Skipping EndUseEmissions computation as neither ST_EmissionDetails nor PhysicalCarrierEmissions is present")
-
-        return False
-
-    path = get_supply_output_path()
-    files = ["EndUseDemandMetByDom.csv",
-             "EndUseDemandMetByImp.csv"]
-    exists = [os.path.exists(os.path.join(path, f)) for f in files]
-
-    if not all(exists):
-        print("Skipping EndUseEmissions computation as the required supply outputs (EndUseDemandMetByDom, EndUseDemandMetByImp) are not present")
-        logger.warning(
-            "Skipping EndUseEmissions computation as the required supply outputs (EndUseDemandMetByDom, EndUseDemandMetByImp) are not present")
-
-    return all(exists)
-
-
 def emission_types_exist():
     """checks if emissions computation is doable or not.
     Some minimum set of parameters are required to do emissions postprocessing.
@@ -364,335 +315,27 @@ def emission_types_exist():
     return True
 
 
-def combine_physical_carriers():
-    PhysicalPrimaryCarriers = loaders.get_parameter("PhysicalPrimaryCarriers")
-    PhysicalDerivedCarriers = loaders.get_parameter("PhysicalDerivedCarriers")
-    PDC = PhysicalDerivedCarriers.rename(
-        columns={"EnergyDensity": "DomEnergyDensity"})
-    PDC['ImpEnergyDensity'] = PDC['DomEnergyDensity']
-    return pd.concat([PDC, PhysicalPrimaryCarriers])
+class EndUseEmissions(emission.EmissionDemandOnly):
+
+    def initilize_met_demand_params(self):
+        self.EndUseDemandMetByDom = emission.handle_day_no(
+            read_supply_output("EndUseDemandMetByDom"))
+        self.EndUseDemandMetByImp = emission.handle_day_no(
+            read_supply_output("EndUseDemandMetByImp"))
+    
+    def write_results(self, emissions_):
+        write_postprocess_results(emissions_, "EndUseEmissions.csv")
 
 
-def compute_fractions(end_use,
-                      end_use_met_dom,
-                      end_use_met_imp,
-                      physical_carriers):
-    """Computes MetDemandEnergyFraction and DemandMetByDomEnergyFraction
-    """
-    logger.debug(
-        "Computing MetDemandEnergyFraction and DemandMetByDomEnergyFraction")
-    cols = utilities.get_all_structure_columns(
-        end_use_met_dom) + ['EnergyCarrier']
-    df = end_use_met_dom.merge(end_use_met_imp)
-    df = df.merge(end_use)
-    df = df.merge(physical_carriers)
-
-    A = df['EndUseDemandMetByDom'] * \
-        df['DomEnergyDensity']
-    B = df['EndUseDemandMetByImp'] * \
-        df['ImpEnergyDensity']
-    MetDemandEnergyFraction = (A+B)/df['EndUseDemandEnergy']
-    DemandMetByDomEnergyFraction = A/(A+B)
-
-    df['MetDemandEnergyFraction'] = MetDemandEnergyFraction.fillna(
-        0).rename("MetDemandEnergyFraction")
-    df['DemandMetByDomEnergyFraction'] = DemandMetByDomEnergyFraction.fillna(
-        0).rename("DemandMetByDomEnergyFraction")
-    return df
-
-
-@functools.lru_cache()
-def get_end_use_demand_energy():
-    """Reads demand output EndUseDemandEnergy.csv if exists, else
-    returns this data from Supply input parameters
-    """
-    try:
-        return read_demand_output("EndUseDemandEnergy")
-    except Exception as e:
-        logger.warning(
-            "Demand procesing output EndUseDemandEnergy.csv not found")
-        logger.warning(
-            "EndUseDemandEnergy.csv from Supply parameters will be used")
-
-        # not using loaders.get_parameter because it returns dataframe
-        # with na values as "". That creates problem in merge!
-        # fix it later after removing na_values = "" in loaders.read_csv
-        filepath = filemanager.find_filepath("EndUseDemandEnergy")
-        return pd.read_csv(filepath)
-
-
-def handle_day_no(data):
-    """ If the DayNo column is present and is non empty for an EnergyCarrier
-    then for each of these two supply outputs, we need to take the average
-    value of the output values over all the DayNos that occur for each
-    combination of G*, Year, Season, DayType and DaySlice (if applicable)
-    for that EnergyCarrier while calculating MetDemandEnergyFraction.
-    """
-    if "DayNo" not in data.columns:
-        return data
-    dfs = []
-    for ec in data.EnergyCarrier.unique():
-        subset = utilities.filter_empty(data[data.EnergyCarrier == ec])
-        if "DayNo" in subset.columns:
-            cols = utilities.get_all_structure_columns(subset)
-            cols.remove('DayNo')
-            subset = subset.groupby(cols, sort=False, as_index=False).mean()
-        dfs.append(subset)
-    return pd.concat(dfs)
-
-
-def enduse_emissions():
-    """
-    Compute EndUseDemandEmission
-    """
-    print("Computing EndUseEmissions")
-    logger.info("Computing EndUseEmissions")
-    EndUseDemandEnergy = get_end_use_demand_energy()
-    EndUseDemandMetByDom = handle_day_no(
-        read_supply_output("EndUseDemandMetByDom"))
-    EndUseDemandMetByImp = handle_day_no(
-        read_supply_output("EndUseDemandMetByImp"))
-
-    physical_carriers = combine_physical_carriers()
-
-    fractions = compute_fractions(EndUseDemandEnergy,
-                                  EndUseDemandMetByDom,
-                                  EndUseDemandMetByImp,
-                                  physical_carriers)
-
-    MetDemandEnergyFraction = fractions['MetDemandEnergyFraction']
-    DemandMetByDomEnergyFraction = fractions['DemandMetByDomEnergyFraction']
-
-    fractions['DemandMetByImpEnergyFraction'] = 1 - \
-        DemandMetByDomEnergyFraction
-
-    emissions_ = compute_emissions(fractions)
-
-    write_postprocess_results(emissions_, "EndUseEmissions.csv")
-
-
-def compute_emissions(fractions):
-    """Computes emission values for end use demand.
-    """
-    if no_demand_output_exists():
-        ds_es_ec_st = [(None, None, ec, None)
-                       for ec in fractions["EnergyCarrier"].unique()]
-
-        if len(ds_es_ec_st) > 0:
-            emission_data = loaders.get_parameter("PhysicalCarrierEmissions")
-            if isinstance(emission_data, pd.DataFrame):
-                EnergyDemandMet_ec = compute_energy_demand_met(fractions,
-                                                               ds_es_ec_st)
-                Emissions = compute_end_use_emission(EnergyDemandMet_ec,
-                                                     emission_data)
-            else:
-                Emissions = pd.DataFrame()
-        else:
-            Emissions = pd.DataFrame()
-    else:
-        ds_es_ec_st = get_physical_nonbottomup_ds_es_ec_st()
-
-        if len(ds_es_ec_st) > 0:
-            emission_data = loaders.get_parameter("PhysicalCarrierEmissions")
-            if isinstance(emission_data, pd.DataFrame):
-                EnergyDemandMet_nb = compute_energy_demand_met(fractions,
-                                                               ds_es_ec_st)
-                Emission_nb = compute_end_use_emission(EnergyDemandMet_nb,
-                                                       emission_data)
-            else:
-                Emission_nb = pd.DataFrame()
-        else:
-            Emission_nb = pd.DataFrame()
-
-        ds_es_ec_st = get_physical_bottomup_ds_es_ec_st()
-
-        if len(ds_es_ec_st) > 0:
-            ds_bottomup_set = {tup[0] for tup in ds_es_ec_st}
-            emission_data = combine_st_emission_data(ds_bottomup_set)
-            EnergyDemandMet_b = compute_energy_demand_met(fractions,
-                                                          ds_es_ec_st)
-            Emission_b = compute_end_use_emission(EnergyDemandMet_b,
-                                                  emission_data)
-        else:
-            Emission_b = pd.DataFrame()
-
-        Emissions = pd.concat([Emission_nb, Emission_b])
-
-    indexcols = get_enduse_emission_columns(Emissions)
-    Emissions.set_index(indexcols, inplace=True)
-    return Emissions['Emission'].reset_index()
-
-
-def get_enduse_emission_columns(Emission):
-    cols = utilities.get_all_structure_columns(Emission)
-    indexcols = ['EnergyCarrier', 'EmissionType']
-    for item in ['DemandSector', 'EnergyService', 'ServiceTech']:
-        if item in Emission.columns:
-            indexcols.append(item)
-
-    return indexcols + cols
-
-
-def combine_st_emission_data(ds_bottomup_set):
-    """For each DS, combines ST_EmissionDetails and PhysicalCarrierEmissions
-    with the help of ST->EnergyCarrier mapping to get final emission data
-    for that demand sector.
-    Finally, the thus combined emission data for each DS is concatenated
-    together over all demand sectors and returned.
-    """
-    ST_Info = loaders.get_parameter("ST_Info")
-    PhysicalCarrierEmissions = loaders.get_parameter(
-        "PhysicalCarrierEmissions")
-
-    if isinstance(PhysicalCarrierEmissions, pd.DataFrame):
-        x = PhysicalCarrierEmissions.merge(ST_Info, on="EnergyCarrier")
-
-        ModelPeriod = loaders.get_parameter("ModelPeriod")
-        Year = pd.Series(range(ModelPeriod.StartYear.iloc[0],
-                               ModelPeriod.EndYear.iloc[0]+1),
-                         name="Year")
-        x = x.merge(Year, how="cross")
-    else:
-        x = pd.DataFrame()
-
-    emission_data_df_list = []
-
-    for ds in ds_bottomup_set:
-        ST_EmissionDetails = loaders.get_parameter("ST_EmissionDetails",
-                                                   demand_sector=ds)
-        if isinstance(ST_EmissionDetails, pd.DataFrame):
-            y = ST_EmissionDetails.merge(ST_Info, on="ServiceTech")
-
-            if not x.empty:
-                z = fs.override_dataframe(x, y, ['ServiceTech',
-                                                 'EmissionType',
-                                                 'Year'])
-            else:
-                z = y
-        else:
-            z = x
-
-        if not z.empty:
-            z.insert(0, 'DemandSector', ds)
-            emission_data_df_list.append(z)
-
-    return pd.concat(emission_data_df_list, ignore_index=True)
-
-
-def get_bottomup_emission_data(EnergyDemandMet):
-    if 'ServiceTech' in EnergyDemandMet.columns:
-        return combine_st_emission_data()
-    else:
-        return loaders.get_parameter("PhysicalCarrierEmissions")
-
-
-def compute_end_use_emission(EnergyDemandMet, emission_data):
-    """compute end use emissions from Dom and Imp sources and also their sum
-    """
-    df = EnergyDemandMet.merge(emission_data)
-    df['EmissionImp'] = df["EnergyDemandMetImp"] * \
-        df["ImpEmissionFactor"]
-    df['EmissionDom'] = df["EnergyDemandMetDom"] * \
-        df["DomEmissionFactor"]
-
-    df['Emission'] = df['EmissionImp'] + df['EmissionDom']
-    return df
-
-
-def set_index(data, indexcols=['EnergyCarrier']):
-    """sets index to all structural columns and additional indexcols
-    """
-    data = data.reset_index()
-    cols = utilities.get_all_structure_columns(data)
-    return data.set_index(cols + indexcols)
-
-
-def demand_col(data):
-    """returns names of demand column that should be used as demand
-    """
-    if "SeasonEnergyDemand" in data.columns:
-        return "SeasonEnergyDemand"
-    else:
-        return "EnergyDemand"
-
-
-@functools.lru_cache()
-def demand_output_status():
-    """Returns a dictionary of DS,ES,EC,ST(optional) vs if corresponding
-    output exists
-    """
-    def exists(ds, es, ec, st=None):
-        path = demand_filepath(ds, es, ec, st)
-        return os.path.exists(path)
-
-    nonbottomup = get_physical_nonbottomup_ds_es_ec_st()
-    bottomup = get_physical_bottomup_ds_es_ec_st()
-
-    d = {item: exists(*item) for item in bottomup}
-    d.update({item: exists(*item) for item in nonbottomup})
-
-    return d
-
-
-def all_demand_outputs_exist():
-    """returns True if all the demand outputs required for emission computation
-    exist.
-    """
-    return all(demand_output_status().values())
-
-
-def no_demand_output_exists():
-    """Returns True if demand outputs are absent alltogether
-    """
-    return not any(demand_output_status().values())
-
-
+        
 def demand_filepath(ds, es, ec, st=None):
     path = get_demand_output_path()
+    path = os.path.join(path, "DemandSector", ds, es)
     if st:
         filename = f"{ds}_{es}_{st}_{ec}_Demand.csv"
     else:
         filename = f"{ds}_{es}_{ec}_Demand.csv"
     return os.path.join(path, filename)
-
-
-def extract_demand(energy_carrier):
-    """get demand for given EvergyCarrier from EndUseDemandEnergy.csv
-    """
-    end_use_demand = get_end_use_demand_energy()  # this is cached , so read only once
-    ed = end_use_demand.query(f"EnergyCarrier == '{energy_carrier}'")
-    ed = utilities.filter_empty(ed)
-    season_wise = putils.seasonwise_timeslices(ed, "EndUseDemandEnergy")
-
-    if 'SeasonEndUseDemandEnergy' in season_wise.columns:
-        season_wise = season_wise.rename(
-            columns={"SeasonEndUseDemandEnergy": "SeasonEnergyDemand",
-                     "EndUseDemandEnergy": "EnergyDemand"})
-    else:
-        season_wise = season_wise.rename(
-            columns={"EndUseDemandEnergy": "EnergyDemand"})
-
-    return season_wise
-
-
-@functools.lru_cache(maxsize=None)
-def read_demand(*args):
-    """reads demand file for ds, es, ec, st combination
-    """
-    ds, es, ec, st = args
-    if no_demand_output_exists():
-        logger.debug(f"Reading Demand for {args} from EndUseDemandEnergy")
-        return extract_demand(ec)
-    filepath = demand_filepath(*args)
-
-    logger.debug(f"Reading Demand for {args} from  {filepath}")
-    demand = pd.read_csv(filepath)
-    demand['EnergyCarrier'] = ec
-    demand['DemandSector'] = ds
-    demand['EnergyService'] = es
-    if st:
-        demand['ServiceTech'] = st
-    return demand
 
 
 def get_physical_bottomup_ds_es_ec_st():
@@ -708,10 +351,7 @@ def get_ds_es_ec(bottomup=True):
     m = demandio
     ds_es_func = m.get_bottomup_ds_es if bottomup else m.get_nonbottomup_ds_es
 
-    DS_ES_EC_DemandGranularity_Map = loaders.get_parameter(
-        "DS_ES_EC_DemandGranularity_Map")
-    ds_es_ec = DS_ES_EC_DemandGranularity_Map.set_index(
-        ['DemandSector', 'EnergyService', 'EnergyCarrier']).index
+    ds_es_ec = demandio.get_all_ds_es_ec_()
     ds_es = [(ds, es) for ds, es in ds_es_func()]
 
     return [(ds, es, ec) for ds, es, ec in ds_es_ec
@@ -729,45 +369,12 @@ def filter_physical(ds_es_ec):
             ec in derived.EnergyCarrier.values]
 
 
-def compute_energy_demand_met(fractions, ds_es_ec_st):
-    """Computes EnergyDemandMetDom/Imp for given set of ds,es,ec,st.
-    st will be None for nonbottomup type of input types
-    """
-
-    demand_met = []
-    filter_empty = utilities.filter_empty
-
-    for ds, es, ec, st in ds_es_ec_st:
-        query = f"EnergyCarrier == '{ec}'"
-        fractions_ = filter_empty(fractions.query(query))
-
-        Demand = read_demand(ds, es, ec, st)
-        # read_demand also adds EnergyCarrier/ServiceTech column in Demand
-        d = energy_demand_met_(Demand,
-                               fractions_)
-        demand_met.append(d)
-
-    EnergyDemandMet = pd.concat(demand_met)
-
-    return EnergyDemandMet
-
-
-def energy_demand_met_(Demand,
-                       fractions):
-    """computes EnergyDemandMet Dom and Imp for a specific end-use Demand
-    """
-
-    demand = demand_col(Demand)
-    df = fractions.merge(Demand)
-    df[f"EnergyDemandMetImp"] = df[demand] *\
-        df['MetDemandEnergyFraction'] *\
-        df['DemandMetByImpEnergyFraction'] / df["ImpEnergyDensity"]
-
-    df[f"EnergyDemandMetDom"] = df[demand] *\
-        df['MetDemandEnergyFraction'] *\
-        df['DemandMetByDomEnergyFraction'] / df["DomEnergyDensity"]
-
-    return df
+def aggregate_to_coarset(data, target):
+    groupcols = putils.get_coarsest(data)
+    result_ = 0
+    for d in data:
+        result_ = result_ + utilities.groupby(d, groupcols, target=target)
+    return result_.reset_index()
 
 
 def get_physical_nonbottomup_ds_es_ec_st():
@@ -784,6 +391,32 @@ def load_logger(name):
     logger = logging.getLogger(name)
 
 
+def get_supply_output_path():
+    supply_output = config.get_config_value("supply_output")
+    if supply_output:
+        path = filemanager.get_custom_output_path("Supply", supply_output)
+    else:
+        scenario_path = filemanager.scenario_location()
+        path = os.path.join(scenario_path, "Supply", 'Output')
+
+    return os.path.join(path, "Run-Outputs")
+
+    
+def check_enduse_supply():
+    
+    path = get_supply_output_path()
+    files = ["EndUseDemandMetByDom.csv",
+             "EndUseDemandMetByImp.csv"]
+    exists = [os.path.exists(os.path.join(path, f)) for f in files]
+
+    if not all(exists):
+        print("Skipping EndUseEmissions computation as the required supply outputs (EndUseDemandMetByDom, EndUseDemandMetByImp) are not present")
+        logger.warning(
+            "Skipping EndUseEmissions computation as the required supply outputs (EndUseDemandMetByDom, EndUseDemandMetByImp) are not present")
+
+    return all(exists)
+
+    
 def emissions(model_instance_path,
               scenario: str,
               output: str,
@@ -818,9 +451,11 @@ def emissions(model_instance_path,
         if check_ect():
             ect_emissions()
 
-        if check_enduse():
-            if all_demand_outputs_exist() or no_demand_output_exists():
-                enduse_emissions()
+        if emission.check_enduse_common() and check_enduse_supply():
+            if emission.all_demand_outputs_exist() or \
+               emission.no_demand_output_exists():
+                e = EndUseEmissions()
+                e.write_results(e.compute())
             else:
                 print(
                     "Some of the required demand outputs are absent, hence EndUseEmissions will not be computed")
@@ -898,7 +533,8 @@ def get_tpes_energycarriers(DomesticProd, Import, OutputFromECTiy):
         "EnergyConvTechnologies")
     NonPhysicalPrimaryCarriers = loaders.get_parameter(
         "NonPhysicalPrimaryCarriers")
-    PhysicalPrimaryCarriers = loaders.get_parameter("PhysicalPrimaryCarriers")
+    PhysicalPrimaryCarriers = loaders.get_parameter(
+        "PhysicalPrimaryCarriersEnergyDensity")
 
     ect_ec = set(EnergyConvTechnologies.InputEC)
     ec = ect_ec & set(NonPhysicalPrimaryCarriers.EnergyCarrier)
@@ -966,7 +602,8 @@ def tpes_nppec(granularity_columns,
         "NonPhysicalPrimaryCarriers")
     EnergyConvTechnologies = supply.get_filtered_parameter(
         "EnergyConvTechnologies")
-    PhysicalDerivedCarriers = loaders.get_parameter("PhysicalDerivedCarriers")
+    PhysicalDerivedCarriers = loaders.get_parameter(
+        "PhysicalDerivedCarriersEnergyDensity")
     NonPhysicalDerivedCarriers = loaders.get_parameter(
         "NonPhysicalDerivedCarriers")
 
@@ -993,11 +630,13 @@ def tpes_nppec(granularity_columns,
                             conv_eff='ConvEff')
     if len(tpes_pd) > 0:
         tpes_dfs.append(tpes_pd)
+
     tpes_npd = compute_tpes_(nppec_npd_data,
                              granularity_columns,
                              entity='EnergyConvTech',
                              colname="OutputFromECTiy",
                              conv_eff='ConvEff')
+
     if len(tpes_npd) > 0:
         tpes_dfs.append(tpes_npd)
     return pd.concat(tpes_dfs)
@@ -1034,8 +673,8 @@ def compute_tpes_(data,
 
         data_ec['TPES'] = data_ec[colname]/ConvEff * \
             energy_density * conversion_factor
-        group = data_ec.reset_index().groupby(granularity_columns, sort=False)
-        tpes_ = group["TPES"].sum()
+        tpes_ = data_ec.reset_index().groupby(
+            granularity_columns, sort=False)['TPES'].sum()
         tpes_ = tpes_.reset_index()
         if entity == 'EnergyCarrier':
             tpes_['EnergyCarrier'] = ec
@@ -1069,7 +708,8 @@ def tpes_ppec(granularity_columns,
               Import):
     """Computes TPES contribution by physical primary carriers
     """
-    PhysicalPrimaryCarriers = loaders.get_parameter("PhysicalPrimaryCarriers")
+    PhysicalPrimaryCarriers = loaders.get_parameter(
+        "PhysicalPrimaryCarriersEnergyDensity")
 
     domestic_prod = season_wise(
         DomesticProd, "DomesticProd").merge(PhysicalPrimaryCarriers)
@@ -1107,9 +747,8 @@ def compute_total_tpes():
                           DomesticProd,
                           Import)
     TPES_NPPEC = tpes_nppec(granularity_columns, OutputFromECTiy)
-
-    TPES = pd.concat([TPES_PPEC, TPES_NPPEC]).reset_index().rename(columns={0: 'TPES'})
-    TPES = TPES.reset_index()
+    TPES = pd.concat([TPES_PPEC, TPES_NPPEC]).reset_index().rename(
+        columns={0: 'TPES'})
     return TPES.groupby(['EnergyCarrier'] + granularity_columns, sort=False)['TPES'].sum()
 
 

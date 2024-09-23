@@ -16,10 +16,11 @@ from rumi.io import loaders
 from rumi.io import constant
 from rumi.io.logger import logging
 from rumi.io import common
-from rumi.io import utilities as commonutils
+from rumi.io import utilities as ioutils
+import functools
 
 logger = logging.getLogger(__name__)
-
+print = functools.partial(print, flush=True)
 
 def get_geographic_columns(geographic_granularity):
     return constant.GEO_COLUMNS[geographic_granularity]
@@ -31,26 +32,6 @@ def get_time_columns(time_granularity):
 
 def get_geographic_columns_from_dataframe(df):
     return [c for c in constant.GEOGRAPHIES if c in df.columns]
-
-
-def group_by_season(data, target):
-    """groups target column by season and appends new column to dataset for
-    season wise computation of target.
-    """
-    if "Season" in data.columns:
-        colname = "Season" + target
-        if colname in data:
-            del data[colname]
-        rest_cols = [
-            c for c in data.columns if c not in constant.TIME_SLICES + (target,)]
-        by_day = commonutils.group_daytype(data, rest_cols, target)
-        by_season = commonutils.group_season(by_day, rest_cols, target)
-        df = by_season.rename(columns={target: colname})
-        indexcols = rest_cols + ['Year', 'Season']
-        data = data.set_index(indexcols)
-        return data.join(df).reset_index()
-    else:
-        return data
 
 
 def seasonwise_timeslices(data, target):
@@ -75,6 +56,25 @@ def seasonwise_timeslices(data, target):
         seasons_size = pd.Series(common.seasons_size())
         seasons_size.index.rename('Season', inplace=True)
         starget = data[target]*weights*seasons_size
-        return data.join(starget.rename(colname)).reset_index()
+        data[colname] = starget.rename(colname)
+        return data.reset_index()
+        # return data.join(starget.rename(colname)).reset_index()
     else:
         return data
+
+
+def get_coarsest(datasets, take_cons_cols=True):
+    """get coarsest granularity-columns among given demand outputs
+    """
+    allcols = []
+    for d in datasets:
+        allcols.append(set(ioutils.get_all_structure_columns(d)))
+
+    if take_cons_cols:
+        start = allcols[0]
+    else:
+        start = set(constant.TIME_SLICES + constant.GEOGRAPHIES)
+
+    return ioutils.order_columns(functools.reduce(lambda x, y: x & y,
+                                                  allcols,
+                                                  start))

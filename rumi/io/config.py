@@ -38,15 +38,6 @@ class Singleton(type):
             return self._instance
 
 
-def get_global_data():
-    model_instance_path = get_config_value("model_instance_path")
-    return os.path.join(model_instance_path, "Global Data")
-
-
-def get_data_root(spec_name):
-    global_data = get_global_data()
-
-
 class ConfigManager(metaclass=Singleton):
 
     def __init__(self, conffile=None):

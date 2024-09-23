@@ -1,10 +1,7 @@
 import logging
 from multiprocessing import Pool
 from concurrent.futures import ThreadPoolExecutor
-from collections import deque
 import platform
-import os
-import functools
 from rumi.io import config
 from rumi.io import logger as rumilogger
 

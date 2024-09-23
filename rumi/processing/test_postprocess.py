@@ -81,6 +81,22 @@ def dummy_output():
     shutil.rmtree(path)
 
 
+def test_demand_filepath(monkeypatch):
+    tmp_path = "output"
+    monkeypatch.setattr(postprocess,
+                        "get_demand_output_path",
+                        lambda: tmp_path)
+
+    ds, es, ec, st = "ds", "es", "ec", "st"
+    folderpath = os.path.join(tmp_path, "DemandSector", ds, es)
+    filename = f"{ds}_{es}_{ec}_Demand.csv"
+    path = os.path.join(folderpath, filename)
+    assert postprocess.demand_filepath(ds, es, ec) == path
+    filename = f"{ds}_{es}_{st}_{ec}_Demand.csv"
+    path = os.path.join(folderpath, filename)
+    assert postprocess.demand_filepath(ds, es, ec, st) == path
+
+    
 def test_season_wise(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
 

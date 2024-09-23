@@ -16,16 +16,45 @@ this module can depend only on python modules
 """
 import pandas as pd
 import datetime
+import functools
+import chardet
+from pathlib import Path
+
+print = functools.partial(print, flush=True)
+
+
+def WARNING(x):
+    """Special construct for yaml validation"""
+    return x
+
+
+def is_empty_or_none(dataframe):
+    return isnone(dataframe) or len(dataframe) == 0
+
+
+def isnone(dataframe):
+    """checks if given dataframe is None
+    """
+    return dataframe is None
+
+
+def get_set(df):
+    """make set to compare two dataframes
+    """
+    return set(df.itertuples(index=False, name=None))
 
 
 def concat(*vectors):
-    return sum([list(v) for v in vectors], [])
+    # sum([list(v) for v in vectors], [])
+    return [x for v in vectors for x in v]
 
 
 def x_in_y(x, y):
-    if set(x) - set(y):
-        print(set(x) - set(y), "Not found!")
-    return not set(x) - set(y)
+    sx = set(x)
+    sy = set(y)
+    if sx - sy:
+        print(sx - sy, "Not found!")
+    return not sx - sy
 
 
 def one_to_one(x, y):
@@ -128,7 +157,8 @@ def take_columns(tabular, n):
 
 
 def flatten(list_of_lists):
-    return sum(list_of_lists, [])
+    # sum(list_of_lists, [])
+    return [x for items in list_of_lists for x in items]
 
 
 def zip_columns(tabular):
@@ -152,27 +182,41 @@ def override_dataframe(dataframe1, dataframe2, index_cols):
     """override data from dataframe2 in dataframe1 using
     index_cols as a key to compare. 
     """
+
+    def check(d1, d2):
+        if [c for c in d1.columns if c not in d2.columns]:
+            raise Exception(
+                "Can not overide dataframe as number of columns are different.")
+
+    if is_empty_or_none(dataframe2):
+        return dataframe1.copy()
+
+    check(dataframe1, dataframe2)
+    check(dataframe2, dataframe1)
+
+    cols = [c for c in dataframe1.columns]
+    dataframe2 = dataframe2[cols]
+    # order by dataframe1 column order
+    indexcols = [c for c in cols if c in index_cols]
+
     dx = dataframe1.to_dict(orient="records")
     dy = dataframe2.to_dict(orient="records")
-    ddx = {tuple(r[c] for c in index_cols): r for r in dx}
-    ddy = {tuple(r[c] for c in index_cols): r for r in dy}
-
+    ddx = {tuple(r[c] for c in indexcols): r for r in dx}
+    ddy = {tuple(r[c] for c in indexcols): r for r in dy}
     ddx.update(ddy)
     return pd.DataFrame(ddx.values())
 
 
-def expand_with(dataf, expansion_col, indexcols):
-    """ expands dataframe with contents of expansion_col. group formed by indexcols
-    is repeated for each item in expansion_col. Final dataframe is concatenated
-    dataframe of those repeated groups.
+def expand_with(dataf, expansion_col):
+    """ expands dataframe with contents of expansion_col. group formed by
+    columns in dataf is repeated for each item in expansion_col.
+    Final dataframe is concatenated dataframe of those repeated groups.
     """
-    df = dataf.groupby(indexcols)
+    return dataf.merge(expansion_col, how="cross")
 
-    dfs = []
-    for item in df.groups.keys():
-        group = df.get_group(item)
-        d = pd.MultiIndex.from_product([group[c] for c in group.columns] +
-                                       [expansion_col]).to_frame().reset_index(drop=True)
-        dfs.append(d)
 
-    return pd.concat(dfs).reset_index(drop=True)
+def get_encoding(filepath):
+    """Tries to find encoding of given file
+    """
+    detected = chardet.detect(Path(filepath).read_bytes())
+    return detected.get("encoding")

@@ -1,3 +1,4 @@
+chardet==5.2.0
 click==8.1.7
 coverage==7.6.1
 exceptiongroup==1.2.2
