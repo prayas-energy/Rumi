@@ -1490,7 +1490,7 @@ def save_supply_input():
     with open(path_all, "w", newline='') as f:
         csvf = csv.DictWriter(f, dialect='excel', fieldnames=fine_cols)
         csvf.writeheader()
-        for EC in set(ec for _, _, ec in ds_es_ec):
+        for EC in fs.unique_list(ec for _, _, ec in ds_es_ec):
             ds_es_EC = [(ds, es, ec)
                         for ds, es, ec in ds_es_ec if ec == EC]
 

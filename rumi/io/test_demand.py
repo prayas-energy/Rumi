@@ -74,6 +74,12 @@ def get_parameter(param_name, **kwargs):
         return pd.DataFrame({"StartYear": [2021], "EndYear": [2025]})
     elif param_name == "STC_ST_Map":
         return [['ST1', 'ST1']]
+    elif param_name == "STC_ES_Map":
+        return [["ST1", "ES1"],
+                ["ST2", "ES1"],
+                ["ST3", "ES1"],
+                ["ST4", "ES1"],
+                ["ST5", "ES1"]]
     elif param_name == "Seasons":
         return utilities.make_dataframe("""Season,StartMonth,StartDate
 SUMMER,4,1
@@ -84,26 +90,14 @@ SPRING,2,1
 """)
 
 
-def load_param(param_name, **kwargs):
-    if param_name == "DS_ES_STC_DemandGranularityMap":
-        return pd.DataFrame({'DemandSector': ['ALL']*4,
-                             'EnergyService': ['ES1']*4,
-                             'ServiceTechCategory': ['ST1', 'ST2', 'ST3', 'ST4'],
-                             'ConsumerGranularity': ['CONSUMERALL']*4,
-                             'GeographicGranularity': ['MODELGEOGRAPHY']*4,
-                             'TimeGranularity': ['YEAR']*4})
-    elif param_name == 'DS_ES_EC_Map':
-        return pd.DataFrame({'DemandSector': ["ALL", "DS2"]*2,
-                             'EnergyService': ["ES2", "ES3", 'ES4', "ES5"],
-                             'EnergyCarrier': ["EC", "EC2"]*2,
-                             'ConsumerGranularity': ['CONSUMERALL']*4,
-                             'GeographicGranularity': ['MODELGEOGRAPHY']*4,
-                             'TimeGranularity': ['YEAR']*4})
+def test_get_service_techs(monkeypatch):
+    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
+    assert demand.get_service_techs("DS1", "ES1", "EC") == (
+        'ST1', 'ST2', 'ST3', 'ST5')
 
 
 def test_derive_ECs(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
-    monkeypatch.setattr(loaders, 'load_param', load_param)
     print(demand.get_combined("DS_ES_EC_DemandGranularityMap"))
     assert set(demand.derive_ECs("DS1")) == {'EC', 'EC1', 'EC2'}
 
@@ -128,12 +122,6 @@ def test_get_corresponding_sts(monkeypatch):
 
     assert set(demand.get_corresponding_sts(
         "DS1", "ES1", "ST2")) == {'ST1', 'ST2', 'ST3', 'ST5'}
-
-
-def test_expand_DS_ALL(monkeypatch):
-    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
-    monkeypatch.setattr(loaders, 'load_param', load_param)
-    # assert demand.expand_DS_ES_EC().equals()
 
 
 def test_is_bottomup(monkeypatch):
@@ -483,7 +471,6 @@ def test_check_coarser_sum(monkeypatch):
 
 def test_get_granularity(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
-    monkeypatch.setattr(loaders, 'load_param', load_param)
     C, G, T = demand.get_granularity("ExogenousDemand",
                                      demand_sector="DS2",
                                      energy_service="ES5",
@@ -629,7 +616,7 @@ def test_baseyear_demand(monkeypatch, clear_filemanager_cache):
                                          colname="BaseYearDemand",
                                          val=0.0,
                                          extracols_df=pd.DataFrame({"EnergyService": ['ES2'],
-                                                                    'EnergyCarrier': ['EC']})).get_dataframe().reset_index()
+                                                                   'EnergyCarrier': ['EC']})).get_dataframe().reset_index()
 
     d = demand.fill_missing_rows_with_zero_baseyeardemand(
         "BaseYearDemand", data.query("Season !='WINTER'"), demand_sector="DS1")
@@ -646,7 +633,7 @@ def compare_dataframes(df1, df2):
 def test_get_combined(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
     combined = pd.DataFrame({'DemandSector': ["DS1", "DS1", "DS2", "DS2"],
-                             'EnergyService': ["ES2", 'ES4', "ES3", "ES5"],
+                            'EnergyService': ["ES2", 'ES4', "ES3", "ES5"],
                              'EnergyCarrier': ["EC", "EC", "EC2", "EC2"],
                              'ConsumerGranularity': ['CONSUMERALL']*4,
                              'GeographicGranularity': ['MODELGEOGRAPHY']*4,

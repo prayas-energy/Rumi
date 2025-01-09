@@ -94,8 +94,6 @@ DS_ES_EC_Map:
       message: In DS_ES_EC_Map, GeographicGranularity must be one of {utilities.get_valid_geographic_levels()}
     - code: x_in_y(x=TimeGranularity, y=utilities.get_valid_time_levels())
       message: In DS_ES_EC_Map, TimeGranularity must be one of {utilities.get_valid_time_levels()}
-    #- code: check_ALL_DS("DS_ES_EC_Map")
-    #  message: In DS_ES_EC_Map, <EnergyService, EnergyCarrier> used with "ALL" as DemandSector can not be used with any other DemandSector
     - code: all([get_consumer_levels(ds)==2 for ds in DS_ES_EC_Map.query("ConsumerGranularity == 'CONSUMERTYPE2'")['DemandSector']])
       message: In DS_ES_EC_Map, ConsumerGranularity can be given as "CONSUMERTYPE2" only for those DemandSectors for which second level of consumer type is defined in Cons1_Cons2_Map
     - code: all([get_consumer_levels(ds)>= len(utilities.get_consumer_columns(cg)) for ds, cg in zip(DemandSector, ConsumerGranularity)])
@@ -220,7 +218,6 @@ STC_ES_Map:
       message: In STC_ES_Map, character + is not allowed in name of ServiceTechCategory
     - code: all([row[0] for row in STC_ES_Map])
       message: All ServiceTechCategories specified in STC_ES_Map must be nonempty
-      
       
 STC_ST_Map:
   filetype: csv

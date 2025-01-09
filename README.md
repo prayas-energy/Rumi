@@ -97,13 +97,13 @@ Users need to download the latest Rumi source repository from release [tag](http
    If the above commands run successfully providing the respective help messages,
    the installation is ready to use!
 
-4. Running the supply module involves solving a linear program using a solver
+3. Running the supply module involves solving a linear program using a solver
    supported by Pyomo, such as CBC, CPLEX or Gurobi. Hence, a solver needs to be
    installed, and the solver name (`solver_name`) and, if needed, the path to the
    solver executable (`solver_executable`) need to be mentioned in the
    [`rumi/Config/Config.yml`](/rumi/Config/Config.yml) file.
 
-5. For more details regarding configuring the Rumi installation, refer to the
+4. For more details regarding configuring the Rumi installation, refer to the
    rumi-overview.pdf document in the [`Docs`](/Docs) folder.
 
 ### Checking data validity

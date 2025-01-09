@@ -1464,12 +1464,14 @@ def create_ec_day_no_reqd_map(m):
 
         m.ec_day_no_reqd_map[ec] = day_no_required
 
+'''
     for ect in get_ect_names_list(m):
         ec_inp = get_input_ec(ect)
         ec_out = get_output_dec(ect)
         if ((ec_inp not in get_nppec_names_list(m)) and 
             m.ec_day_no_reqd_map[ec_inp]):
             m.ec_day_no_reqd_map[ec_out] = True
+'''
 
 def get_day_no_list(m):
     return list(range(1, m.seasons_data[DURATION_COLUMN_NAME].max() + 1))
@@ -1552,6 +1554,82 @@ def get_upto_bal_time_conc_set(m, ec):
                 if m.ec_day_no_reqd_map[ec] else 
                 m.BalTimeYrConc | m.BalTimeSeConc | m.BalTimeDTConcDummyDayNo | m.BalTimeDSConcDummyDayNo)
 
+coarser_bal_time_dict = \
+{
+    (BALTIME_YR_STR, BALTIME_YR_STR): BALTIME_YR_STR,
+    (BALTIME_YR_STR, BALTIME_SE_STR): BALTIME_YR_STR,
+    (BALTIME_YR_STR, BALTIME_DT_STR): BALTIME_YR_STR,
+    (BALTIME_YR_STR, BALTIME_DS_STR): BALTIME_YR_STR,
+
+    (BALTIME_SE_STR, BALTIME_YR_STR): BALTIME_YR_STR,
+    (BALTIME_SE_STR, BALTIME_SE_STR): BALTIME_SE_STR,
+    (BALTIME_SE_STR, BALTIME_DT_STR): BALTIME_SE_STR,
+    (BALTIME_SE_STR, BALTIME_DS_STR): BALTIME_SE_STR,
+
+    (BALTIME_DT_STR, BALTIME_YR_STR): BALTIME_YR_STR,
+    (BALTIME_DT_STR, BALTIME_SE_STR): BALTIME_SE_STR,
+    (BALTIME_DT_STR, BALTIME_DT_STR): BALTIME_DT_STR,
+    (BALTIME_DT_STR, BALTIME_DS_STR): BALTIME_DT_STR,
+
+    (BALTIME_DS_STR, BALTIME_YR_STR): BALTIME_YR_STR,
+    (BALTIME_DS_STR, BALTIME_SE_STR): BALTIME_SE_STR,
+    (BALTIME_DS_STR, BALTIME_DT_STR): BALTIME_DT_STR,
+    (BALTIME_DS_STR, BALTIME_DS_STR): BALTIME_DS_STR
+}
+
+def get_coarser_bal_time_conc_set(m, ec1, ec2):
+    bal_time_inp1 = get_bal_time_inp(ec1)
+    bal_time_inp2 = get_bal_time_inp(ec2)
+
+    coarser_bal_time_inp = coarser_bal_time_dict.get((bal_time_inp1, bal_time_inp2))
+
+    day_no_reqd = True if (m.ec_day_no_reqd_map[ec1] and m.ec_day_no_reqd_map[ec2]) else False
+
+    if (coarser_bal_time_inp == BALTIME_YR_STR):
+        return m.BalTimeYr if (not m.day_no_time_elem_reqd) else m.BalTimeYrConc
+    if (coarser_bal_time_inp == BALTIME_SE_STR):
+        return m.BalTimeSe if (not m.day_no_time_elem_reqd) else m.BalTimeSeConc
+    if (coarser_bal_time_inp == BALTIME_DT_STR):
+        return m.BalTimeDT if (not m.day_no_time_elem_reqd) else \
+                           (m.BalTimeDTConcActualDayNo if day_no_reqd 
+                                                       else m.BalTimeDTConcDummyDayNo)
+    if (coarser_bal_time_inp == BALTIME_DS_STR):
+        return m.BalTimeDS if (not m.day_no_time_elem_reqd) else \
+                           (m.BalTimeDSConcActualDayNo if day_no_reqd 
+                                                       else m.BalTimeDSConcDummyDayNo)
+
+coarser_bal_area_dict = \
+{
+    (BALAREA_MG_STR, BALAREA_MG_STR)   : BALAREA_MG_STR,
+    (BALAREA_MG_STR, BALAREA_SG1_STR)  : BALAREA_MG_STR,
+    (BALAREA_MG_STR, BALAREA_SG2_STR)  : BALAREA_MG_STR,
+    (BALAREA_MG_STR, BALAREA_SG3_STR)  : BALAREA_MG_STR,
+
+    (BALAREA_SG1_STR, BALAREA_MG_STR)   : BALAREA_MG_STR,
+    (BALAREA_SG1_STR, BALAREA_SG1_STR)  : BALAREA_SG1_STR,
+    (BALAREA_SG1_STR, BALAREA_SG2_STR)  : BALAREA_SG1_STR,
+    (BALAREA_SG1_STR, BALAREA_SG3_STR)  : BALAREA_SG1_STR,
+
+    (BALAREA_SG2_STR, BALAREA_MG_STR)   : BALAREA_MG_STR,
+    (BALAREA_SG2_STR, BALAREA_SG1_STR)  : BALAREA_SG1_STR,
+    (BALAREA_SG2_STR, BALAREA_SG2_STR)  : BALAREA_SG2_STR,
+    (BALAREA_SG2_STR, BALAREA_SG3_STR)  : BALAREA_SG2_STR,
+
+    (BALAREA_SG3_STR, BALAREA_MG_STR)   : BALAREA_MG_STR,
+    (BALAREA_SG3_STR, BALAREA_SG1_STR)  : BALAREA_SG1_STR,
+    (BALAREA_SG3_STR, BALAREA_SG2_STR)  : BALAREA_SG2_STR,
+    (BALAREA_SG3_STR, BALAREA_SG3_STR)  : BALAREA_SG3_STR
+}
+
+def get_coarser_bal_area_set(m, ec1, ec2):
+    bal_area_inp1 = get_bal_area_inp(ec1)
+    bal_area_inp2 = get_bal_area_inp(ec2)
+
+    coarser_bal_area_inp = coarser_bal_area_dict.get((bal_area_inp1, bal_area_inp2))
+
+    return get_bal_area_set(m, ec1) \
+           if (coarser_bal_area_inp == bal_area_inp1) else get_bal_area_set(m, ec2)
+
 def get_btconc_ba(m, ec):
     bal_time_conc_set = get_bal_time_conc_set(m, ec)
     bal_area_set = get_bal_area_set(m, ec)
@@ -1630,6 +1708,20 @@ def init_iy_ect_filt_btconc_ba(m):
             for ec in [get_output_dec(ect)]
             for btconc in get_bal_time_conc_set(m, ec) if iy <= btconc[0] 
             for ba in get_bal_area_set(m, ec))
+
+def init_iy_ect_filt_btconc_ba_input_gran(m):
+    return ((iy, ect, btconc, ba)
+            for iy in m.InstYear for ect in m.EnergyConvTechFiltered
+            for ec in [get_input_ec(ect)]
+            for btconc in get_bal_time_conc_set(m, ec) if iy <= btconc[0] 
+            for ba in get_bal_area_set(m, ec))
+
+def init_iy_ect_filt_btconc_ba_coarser_gran(m):
+    return ((iy, ect, btconc, ba)
+            for iy in m.InstYear for ect in m.EnergyConvTechFiltered
+            for ec_inp in [get_input_ec(ect)] for ec_out in [get_output_dec(ect)]
+            for btconc in get_coarser_bal_time_conc_set(m, ec_inp, ec_out) if iy <= btconc[0] 
+            for ba in get_coarser_bal_area_set(m, ec_inp, ec_out))
 
 def init_iy_est_btconc_ba(m):
     return ((iy, est, btconc, ba)
@@ -1744,6 +1836,24 @@ model.IY_ECTFILT_BTCONC_BA = Set(within = model.InstYear *
                                           model.BalTimeConc * model.BalArea, 
                                  initialize = init_iy_ect_filt_btconc_ba, 
                                  ordered = True)
+
+model.IY_ECTFILT_BTCONC_BA_OUTPUT_GRAN = Set(within = model.InstYear * 
+                                                      model.EnergyConvTechFiltered * 
+                                                      model.BalTimeConc * model.BalArea, 
+                                             initialize = model.IY_ECTFILT_BTCONC_BA, 
+                                             ordered = True)
+
+model.IY_ECTFILT_BTCONC_BA_INPUT_GRAN = Set(within = model.InstYear * 
+                                                     model.EnergyConvTechFiltered * 
+                                                     model.BalTimeConc * model.BalArea, 
+                                            initialize = init_iy_ect_filt_btconc_ba_input_gran, 
+                                            ordered = True)
+
+model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN = Set(within = model.InstYear * 
+                                                       model.EnergyConvTechFiltered * 
+                                                       model.BalTimeConc * model.BalArea, 
+                                              initialize = init_iy_ect_filt_btconc_ba_coarser_gran, 
+                                              ordered = True)
 
 model.IY_EST_BTCONC_BA = Set(within = model.InstYear * model.EnergyStorTech * 
                                       model.BalTimeConc * model.BalArea, 
@@ -2299,6 +2409,13 @@ def get_current_age_in_years(m, curr_yr, inst_yr):
     return curr_yr - inst_yr - (1 if (inst_yr == m.StartYear - 1) else 0)
 
 def is_contained_in_time(m, btconc_elem_coarse, btconc_elem_fine):
+#   The logic implemented below works in the following cases:
+#     1. Neither btconc_elem_coarse nor btconc_elem_fine has an actual day number
+#     2. Both btconc_elem_coarse and btconc_elem_fine have an actual day number
+#     3. btconc_elem_coarse does not have an actual day number,
+#        but btconc_elem_fine has an actual day number
+#   The logic does not work if btconc_elem_coarse has an actual day number,
+#   but btconc_elem_fine does not have an actual day number
     for i in range(m.num_conc_time_colms):
         if (btconc_elem_coarse[i] == DUMMY_TIME_STR): continue
         if (btconc_elem_coarse[i] == btconc_elem_fine[i]): continue
@@ -2337,14 +2454,14 @@ def get_ect_unit_io_output_conv_factor(m, dom_or_imp, iy, ect, yr, *args):  # ar
 
     return conv_fact
 
-def get_time_level(m, ec, btconc_elem):
+def get_time_level(m, btconc_elem):
     time_level = 0
 
     for i in range(m.num_conc_time_colms):
         if (btconc_elem[i] != DUMMY_TIME_STR):
             time_level += 1
 
-    if m.ec_day_no_reqd_map[ec]:
+    if (m.day_no_time_elem_reqd and (btconc_elem[2] != DUMMY_TIME_STR)):
         time_level -= 1
 
     return time_level
@@ -2358,6 +2475,29 @@ def get_geog_level(m, ba_elem):
 
     return geog_level
 
+def get_time_scale_factor(m, btconc_elem_coarse, btconc_elem_fine):
+    tl_coarse = get_time_level(m, btconc_elem_coarse)
+    tl_fine = get_time_level(m, btconc_elem_fine)
+
+    actual_day_no_in_coarse = True if (m.day_no_time_elem_reqd and 
+                                       (btconc_elem_coarse[2] != DUMMY_TIME_STR)) else False
+    actual_day_no_in_fine = True if (m.day_no_time_elem_reqd and 
+                                     (btconc_elem_fine[2] != DUMMY_TIME_STR)) else False
+
+    if ((tl_coarse <= 2) and                            # coarser granularity is YEAR or SEASON
+        (tl_fine > 2) and                               # finer granularity is DAYTYPE or DAYSLICE
+        (not actual_day_no_in_fine)):                   # finer granularity does not have an actual day no
+        se = btconc_elem_fine[1]
+        dt = btconc_elem_fine[3] if m.day_no_time_elem_reqd else btconc_elem_fine[2]
+        return m.NumDaysPerSeason[se] * m.WeightPerDayType[dt]
+    elif ((tl_coarse > 2) and                           # coarser granularity is DAYTYPE or DAYSLICE
+          (not actual_day_no_in_coarse) and             # coarser granularity does not have an actual day no
+          (actual_day_no_in_fine)):                     # finer granularity has an actual day no
+        se = btconc_elem_fine[1]
+        dt = btconc_elem_fine[3] if m.day_no_time_elem_reqd else btconc_elem_fine[2]
+        return 1.0 / (m.NumDaysPerSeason[se] * m.WeightPerDayType[dt])
+    else:
+        return 1
 
 if (model.num_time_levels_to_use > 1):
     model.NumDaysPerSeason = Param(model.SeasonInp,
@@ -2425,7 +2565,8 @@ model.PECCostInBT_BA = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
 model.DomPECCostInBT_BA = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
 model.ImpPECCostInBT_BA = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
 model.DECCostInBT_BA = Var(model.DEC_BTCONC_BA, within = NonNegativeReals)
-model.ECTVarCost = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
+model.ECTInputVarCost = Var(model.EnergyCarrier, model.Year, 
+                            within = NonNegativeReals)
 model.StorDischargeTransitCost = Var(model.EC_BTCONC_BA, 
                                      within = NonNegativeReals)
 
@@ -2436,8 +2577,18 @@ model.DomSupplyFromTo = Var(model.EC_BTCONC_BA1_BA2, within = NonNegativeReals)
 model.ImpSupplyFromTo = Var(model.EC_BTCONC_BA1_BA2, within = NonNegativeReals)
 model.TotalSupplyFromTo = Var(model.EC_BTCONC_BA1_BA2, 
                               within = NonNegativeReals)
-model.ECTInputDom = Var(model.IY_ECTFILT_BTCONC_BA, within = NonNegativeReals)
-model.ECTInputImp = Var(model.IY_ECTFILT_BTCONC_BA, within = NonNegativeReals)
+model.ECTInputDomOutputGran = Var(model.IY_ECTFILT_BTCONC_BA_OUTPUT_GRAN, 
+                                  within = NonNegativeReals)
+model.ECTInputImpOutputGran = Var(model.IY_ECTFILT_BTCONC_BA_OUTPUT_GRAN, 
+                                  within = NonNegativeReals)
+model.ECTInputDomInputGran = Var(model.IY_ECTFILT_BTCONC_BA_INPUT_GRAN, 
+                                 within = NonNegativeReals)
+model.ECTInputImpInputGran = Var(model.IY_ECTFILT_BTCONC_BA_INPUT_GRAN, 
+                                 within = NonNegativeReals)
+model.ECTInputDomCoarserGran = Var(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
+                                   within = NonNegativeReals)
+model.ECTInputImpCoarserGran = Var(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
+                                   within = NonNegativeReals)
 model.DomSupplyFrom = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.ImpSupplyFrom = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.DomesticProd = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
@@ -2558,6 +2709,7 @@ def cost_of_carrier_rule(m, ec, y):
     bal_area_set = get_bal_area_set(m, ec)
 
     return (m.CostOfCarrier[ec, y] == 
+            m.ECTInputVarCost[ec, y] + 
             sum(m.ECCostInBT_BA[ec, btconc, ba] * get_ec_scale_factor(m, ec, btconc) 
                 for btconc in bal_time_conc_set if (btconc[0] == y) 
                 for ba in bal_area_set))
@@ -2569,7 +2721,7 @@ def ec_cost_in_bt_ba_rule(m, ec, *args):            #args = btconc_ba
     return (m.ECCostInBT_BA[ec, args] == 
             (m.PECCostInBT_BA[ec, args] if is_primary(ec) else 
              m.DECCostInBT_BA[ec, args]) + 
-            m.ECTVarCost[ec, args] + m.StorDischargeTransitCost[ec, args] + 
+            m.StorDischargeTransitCost[ec, args] + 
             m.UnmetDemand[ec, args] * m.CostPerUnmetUnit[ec, args[0]])
 
 model.ec_cost_in_bt_ba_constraint = Constraint(model.EC_BTCONC_BA, 
@@ -2638,24 +2790,24 @@ def dec_cost_in_bt_ba_rule(m, ec, *args):           #args = btconc_ba
 model.dec_cost_in_bt_ba_constraint = Constraint(model.DEC_BTCONC_BA, 
     rule = dec_cost_in_bt_ba_rule)
 
-def ect_var_cost_rule(m, ec, *args):                #args = btconc_ba
-    btconc = args[0 : m.num_conc_time_colms]
-    ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+def ect_var_cost_rule(m, ec, y):
+    year_time_elem_list = [DUMMY_TIME_STR] * m.num_conc_time_colms
+    year_time_elem_list[0] = y
+    year_time_elem_tuple = tuple(year_time_elem_list)
 
-    return (m.ECTVarCost[ec, args] == 
-            sum((m.ECTInputDom[iy, ect, btconc_out, ba_out] + 
-                 m.ECTInputImp[iy, ect, btconc_out, ba_out]) * 
+    return (m.ECTInputVarCost[ec, y] == 
+            sum((m.ECTInputDomOutputGran[iy, ect, btconc_out, ba_out] + 
+                 m.ECTInputImpOutputGran[iy, ect, btconc_out, ba_out]) * 
                 m.VarCost[iy, ect, btconc_out[0], ba_out] *
-                get_ect_scale_factor(m, ect, btconc_out)
+                get_time_scale_factor(m, year_time_elem_tuple, btconc_out)
                 for ect in m.EnergyConvTechFiltered if (get_input_ec(ect) == ec) 
                 for btconc_out in get_bal_time_conc_set(m, get_output_dec(ect)) 
-                if is_contained_in_time(m, btconc, btconc_out) 
+                if (btconc_out[0] == y) 
                 for ba_out in get_bal_area_set(m, get_output_dec(ect)) 
-                if is_contained_in_geog(m, ba, ba_out) 
-                for iy in m.InstYear if (iy <= btconc[0])
+                for iy in m.InstYear if (iy <= y)
                ))
 
-model.ect_var_cost_constraint = Constraint(model.EC_BTCONC_BA, 
+model.ect_var_cost_constraint = Constraint(model.EnergyCarrier, model.Year, 
     rule = ect_var_cost_rule)
 
 def stor_discharge_transit_cost_rule(m, ec, *args):         #args = btconc_ba
@@ -2772,7 +2924,7 @@ def output_from_ect_iy_using_dom_input_rule(m, iy, ect, *args):     #args = btco
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
 
     return (m.OutputFromECTiyUsingDomInput[iy, ect, args] == 
-            m.ECTInputDom[iy, ect, args] * 
+            m.ECTInputDomOutputGran[iy, ect, args] * 
             m.ECTUnitIOOutputConv[EC_DOM_STR, iy, ect, args[0], ba])
 
 model.output_from_ect_iy_using_dom_input_constraint = Constraint(
@@ -2782,7 +2934,7 @@ def output_from_ect_iy_using_imp_input_rule(m, iy, ect, *args):     #args = btco
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
 
     return (m.OutputFromECTiyUsingImpInput[iy, ect, args] == 
-            m.ECTInputImp[iy, ect, args] * 
+            m.ECTInputImpOutputGran[iy, ect, args] * 
             m.ECTUnitIOOutputConv[EC_IMP_STR, iy, ect, args[0], ba])
 
 model.output_from_ect_iy_using_imp_input_constraint = Constraint(
@@ -3008,13 +3160,8 @@ def dom_consumption_rule(m, ec, *args):             #args = btconc_ba
                 for ba_src in bal_area_set)
             == 
             m.EndUseDemandMetByDom[ec, args] + 
-            sum(m.ECTInputDom[iy, ect, btconc_out, ba_out] * 
-                get_ect_scale_factor(m, ect, btconc_out)
+            sum(m.ECTInputDomInputGran[iy, ect, btconc, ba]
                 for ect in m.EnergyConvTechFiltered if (get_input_ec(ect) == ec) 
-                for btconc_out in get_bal_time_conc_set(m, get_output_dec(ect)) 
-                if is_contained_in_time(m, btconc, btconc_out) 
-                for ba_out in get_bal_area_set(m, get_output_dec(ect)) 
-                if is_contained_in_geog(m, ba, ba_out) 
                 for iy in m.InstYear if (iy <= btconc[0])
                ) 
             + 
@@ -3043,13 +3190,8 @@ def imp_consumption_rule(m, ec, *args):             #args = btconc_ba
                 for ba_src in bal_area_set)
             == 
             m.EndUseDemandMetByImp[ec, args] + 
-            sum(m.ECTInputImp[iy, ect, btconc_out, ba_out] * 
-                get_ect_scale_factor(m, ect, btconc_out)
+            sum(m.ECTInputImpInputGran[iy, ect, btconc, ba]
                 for ect in m.EnergyConvTechFiltered if (get_input_ec(ect) == ec) 
-                for btconc_out in get_bal_time_conc_set(m, get_output_dec(ect)) 
-                if is_contained_in_time(m, btconc, btconc_out) 
-                for ba_out in get_bal_area_set(m, get_output_dec(ect)) 
-                if is_contained_in_geog(m, ba, ba_out) 
                 for iy in m.InstYear if (iy <= btconc[0])
                ) 
             + 
@@ -3338,27 +3480,27 @@ model.imp_stor_discharged_from_constraint = Constraint(model.EC_BTCONC_BA,
 
 #########                   EndUse related                      #############
 
-def end_use_demand_components_rule(m, ec, *args):            #args = btconc_ba
+def end_use_demand_components_rule1(m, ec, *args):          #args = btconc_ba
     btconc = args[0 : m.num_conc_time_colms]
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
 
-    tl = get_time_level(m, ec, btconc)
+    tl = get_time_level(m, btconc)
     gl = get_geog_level(m, ba)
     
     return (m.EndUseDemand[ec, args] ==
-            sum((m.EndUseDemandComponents[ec, tl, gl, bt_conc_comp, ba_comp] * 
-                 (1 if (tl > 2) else get_ec_scale_factor(m, ec, bt_conc_comp)))
-                for bt_conc_comp in get_bal_time_conc_set(m, ec) 
-                if is_contained_in_time(m, btconc, bt_conc_comp) 
-                for ba_comp in get_bal_area_set(m, ec) 
-                if is_contained_in_geog(m, ba, ba_comp)
+            sum((m.EndUseDemandComponents[ec, tl, gl, btconc_component, ba_component] * 
+                 (1 if (tl > 2) else get_ec_scale_factor(m, ec, btconc_component)))
+                for btconc_component in get_bal_time_conc_set(m, ec) 
+                if is_contained_in_time(m, btconc, btconc_component) 
+                for ba_component in get_bal_area_set(m, ec) 
+                if is_contained_in_geog(m, ba, ba_component)
                )
            )
 
-model.end_use_demand_components_constraint = Constraint(model.EC_UPTOBTCONC_UPTOBA, 
-    rule = end_use_demand_components_rule)
+model.end_use_demand_components_constraint1 = Constraint(model.EC_UPTOBTCONC_UPTOBA, 
+    rule = end_use_demand_components_rule1)
 
-def end_use_demand_var_rule(m, ec, *args):                   #args = btconc_ba
+def end_use_demand_components_rule2(m, ec, *args):          #args = btconc_ba
     return (m.EndUseDemandVar[ec, args] ==
             sum(m.EndUseDemandComponents[ec, tl, gl, args] 
                 for tl in get_time_levels_set(ec)
@@ -3366,8 +3508,78 @@ def end_use_demand_var_rule(m, ec, *args):                   #args = btconc_ba
                )
            )
 
-model.end_use_demand_var_constraint = Constraint(model.EC_BTCONC_BA, 
-    rule = end_use_demand_var_rule)
+model.end_use_demand_var_constraint2 = Constraint(model.EC_BTCONC_BA, 
+    rule = end_use_demand_components_rule2)
+
+#########                   ECT related                         #############
+
+def ect_input_dom_rule1(m, iy, ect, *args):                 #args = btconc_ba_coarser_gran
+    btconc_coarser_gran = args[0 : m.num_conc_time_colms]
+    ba_coarser_gran = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+
+    return (m.ECTInputDomCoarserGran[iy, ect, args] ==
+            sum((m.ECTInputDomOutputGran[iy, ect, btconc_output_gran, ba_output_gran] * 
+                 get_time_scale_factor(m, btconc_coarser_gran, btconc_output_gran))
+                for btconc_output_gran in get_bal_time_conc_set(m, get_output_dec(ect)) 
+                if is_contained_in_time(m, btconc_coarser_gran, btconc_output_gran) 
+                for ba_output_gran in get_bal_area_set(m, get_output_dec(ect)) 
+                if is_contained_in_geog(m, ba_coarser_gran, ba_output_gran)
+               )
+           )
+
+model.ect_input_dom_constraint1 = Constraint(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
+    rule = ect_input_dom_rule1)
+
+def ect_input_imp_rule1(m, iy, ect, *args):                 #args = btconc_ba_coarser_gran
+    btconc_coarser_gran = args[0 : m.num_conc_time_colms]
+    ba_coarser_gran = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+
+    return (m.ECTInputImpCoarserGran[iy, ect, args] ==
+            sum((m.ECTInputImpOutputGran[iy, ect, btconc_output_gran, ba_output_gran] * 
+                 get_time_scale_factor(m, btconc_coarser_gran, btconc_output_gran))
+                for btconc_output_gran in get_bal_time_conc_set(m, get_output_dec(ect)) 
+                if is_contained_in_time(m, btconc_coarser_gran, btconc_output_gran) 
+                for ba_output_gran in get_bal_area_set(m, get_output_dec(ect)) 
+                if is_contained_in_geog(m, ba_coarser_gran, ba_output_gran)
+               )
+           )
+
+model.ect_input_imp_constraint1 = Constraint(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
+    rule = ect_input_imp_rule1)
+
+def ect_input_dom_rule2(m, iy, ect, *args):                 #args = btconc_ba_coarser_gran
+    btconc_coarser_gran = args[0 : m.num_conc_time_colms]
+    ba_coarser_gran = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+
+    return (m.ECTInputDomCoarserGran[iy, ect, args] ==
+            sum((m.ECTInputDomInputGran[iy, ect, btconc_input_gran, ba_input_gran] *
+                 get_time_scale_factor(m, btconc_coarser_gran, btconc_input_gran))
+                for btconc_input_gran in get_bal_time_conc_set(m, get_input_ec(ect)) 
+                if is_contained_in_time(m, btconc_coarser_gran, btconc_input_gran) 
+                for ba_input_gran in get_bal_area_set(m, get_input_ec(ect)) 
+                if is_contained_in_geog(m, ba_coarser_gran, ba_input_gran)
+               )
+           )
+
+model.ect_input_dom_constraint2 = Constraint(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
+    rule = ect_input_dom_rule2)
+
+def ect_input_imp_rule2(m, iy, ect, *args):                 #args = btconc_ba_coarser_gran
+    btconc_coarser_gran = args[0 : m.num_conc_time_colms]
+    ba_coarser_gran = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+
+    return (m.ECTInputImpCoarserGran[iy, ect, args] ==
+            sum((m.ECTInputImpInputGran[iy, ect, btconc_input_gran, ba_input_gran] *
+                 get_time_scale_factor(m, btconc_coarser_gran, btconc_input_gran))
+                for btconc_input_gran in get_bal_time_conc_set(m, get_input_ec(ect)) 
+                if is_contained_in_time(m, btconc_coarser_gran, btconc_input_gran) 
+                for ba_input_gran in get_bal_area_set(m, get_input_ec(ect)) 
+                if is_contained_in_geog(m, ba_coarser_gran, ba_input_gran)
+               )
+           )
+
+model.ect_input_imp_constraint2 = Constraint(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
+    rule = ect_input_imp_rule2)
 
 #########                   User specified                      #############
 
@@ -3464,7 +3676,7 @@ logger.info("Before calling solver")
 
 if (symbolic_solver_labels):
     print("Creating LP file (with symbolic solver labels) and calling solver")
-    results = opt.solve(instance, tee = True, io_options = {'symbolic_solver_labels': True})
+    results = opt.solve(instance, tee = True, symbolic_solver_labels = True)
 else:
     print("Creating LP file and calling solver")
     results = opt.solve(instance, tee = True)

@@ -349,7 +349,7 @@ PhysicalCarrierEmissions:
       message: In PhysicalCarrierEmissions, EmissionType should be one of the defined emission types from EmissionTypes
     - code: unique(list(zip(EnergyCarrier.values, EmissionType.values, Year.values)))
       message: In PhysicalCarrierEmissions combination of EnergyCarrier and EmissionType can not be repeated
-
+    
       
 UnmetDemandValue:
   filetype: csv

@@ -219,10 +219,8 @@ def demand_output_status():
 
     nonbottomup = get_physical_nonbottomup_ds_es_ec_st()
     bottomup = get_physical_bottomup_ds_es_ec_st()
-
     d = {item: exists(*item) for item in bottomup}
     d.update({item: exists(*item) for item in nonbottomup})
-
     return d
 
 
@@ -496,6 +494,29 @@ def get_enduse_emission_columns(Emission):
     return indexcols + cols
 
 
+def get_EC_ST_ES_data_(ds):
+    DS_ES_Map = loaders.get_parameter("DS_ES_Map", demand_sector=ds)
+    STC_ES_Map = loaders.get_parameter("STC_ES_Map")
+    ES_ = DS_ES_Map.query(f"DemandSector == '{ds}'").EnergyService.values
+    data = []
+    for ES in ES_:
+        for STC in [row[0] for row in STC_ES_Map if ES in row[1:]]:
+            for ST in demandio.STC_to_STs(STC):
+                for EC in demandio.ST_to_ECs(ST):
+                    data.append({"EnergyCarrier": EC,
+                                 "ServiceTech": ST,
+                                 "EnergyService": ES})
+
+    return pd.DataFrame(data)
+
+
+def get_EC_ST_ES_data():
+    d = []
+    for ds in loaders.get_parameter("DS_List"):
+        d.append(get_EC_ST_ES_data_(ds))
+    return pd.concat(d)
+
+
 @functools.lru_cache()
 def combine_st_emission_data(ds_bottomup):
     """For each DS, combines ST_EmissionDetails and PhysicalCarrierEmissions
@@ -507,12 +528,7 @@ def combine_st_emission_data(ds_bottomup):
     PhysicalCarrierEmissions = loaders.get_parameter(
         "PhysicalCarrierEmissions")
 
-    ST_EC_ES_data = pd.DataFrame([{"EnergyCarrier": EC,
-                                   "ServiceTech": ST,
-                                   "EnergyService": ES} for EC in PhysicalCarrierEmissions.EnergyCarrier.unique() for ST in demandio.EC_to_STs(EC) for STC in demandio.EC_to_STCs(EC) for ES in demandio.STC_to_ESs_(STC)])
-    # this list comprehension makes use of ST_EC_Map, STC_ES_Map,STC_ST_Map to
-    # find ST and ES for every EnergyCarrier in PhysicalCarrierEmissions.
-    # this is not complete , but we are interested only in ECs related to bottomup.
+    ST_EC_ES_data = get_EC_ST_ES_data()
 
     if isinstance(PhysicalCarrierEmissions, pd.DataFrame):
         x = PhysicalCarrierEmissions.merge(ST_EC_ES_data, on="EnergyCarrier")
@@ -524,7 +540,8 @@ def combine_st_emission_data(ds_bottomup):
         ST_EmissionDetails = loaders.get_parameter("ST_EmissionDetails",
                                                    demand_sector=ds)
         if isinstance(ST_EmissionDetails, pd.DataFrame):
-            ST_EmissionDetails = ST_EmissionDetails[~ST_EmissionDetails.EnergyCarrier.isnull()]
+            ST_EmissionDetails = ST_EmissionDetails[~ST_EmissionDetails.EnergyCarrier.isnull(
+            )]
             y = ST_EmissionDetails.copy()
             if not x.empty:
                 z = fs.override_dataframe(x, y, ['EnergyCarrier',

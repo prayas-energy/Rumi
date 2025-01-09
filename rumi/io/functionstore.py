@@ -171,6 +171,15 @@ def unique(values):
     return len(set(values)) == len(values)
 
 
+def unique_list(values):
+    """make a unique list without disturbing order"""
+    seen = []
+    for item in values:
+        if item not in seen:
+            seen.append(item)
+    return seen
+
+
 def get_col(data, name):
     if not isinstance(data, pd.DataFrame):
         return []

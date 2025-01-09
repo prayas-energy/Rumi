@@ -161,9 +161,9 @@ def get_combined_granularity_map():
     d_st = pd.DataFrame(newdata)
     collapsed = []
     names = ["DemandSector", "EnergyService", "EnergyCarrier"]
-    for values in set([(item['DemandSector'],
-                        item['EnergyService'],
-                        item['EnergyCarrier']) for item in newdata]):
+    for values in fs.unique_list([(item['DemandSector'],
+                                   item['EnergyService'],
+                                   item['EnergyCarrier']) for item in newdata]):
         q = " & ".join([f"{name} == '{value}'" for name, value in zip(names,
                                                                       values)])
         ds, es, ec = values
@@ -1293,64 +1293,8 @@ def not_BOTTOMUP(DS_ES_X_Map, DS_ES_Map):
     return len(df) == 0
 
 
-def check_ALL_DS(DS_ES_X_Map):
-    """
-    ES,entity used with ALL as DS can not be used with any other DS.
-    This function checks if this is true.
-
-    entity-> EnergyCarrier for DS_ES_EC_Map
-    entity-> ServiceTechCategory for DS_ES_STC_DemandGranularityMap
-    """
-    if DS_ES_X_Map == "DS_ES_EC_Map":
-        entity = "EnergyCarrier"
-    else:
-        entity = 'ServiceTechCategory'
-    X_Map = loaders.load_param(DS_ES_X_Map).to_dict(orient='records')
-    ES_EC_with_ALL = [(row['EnergyService'], row[entity])
-                      for row in X_Map if row['DemandSector'] == "ALL"]
-    ES_EC_without_ALL = [(row['EnergyService'], row[entity]) for row in X_Map if row['DemandSector']
-                         != "ALL" and (row['EnergyService'], row[entity]) in ES_EC_with_ALL]
-    return len(ES_EC_without_ALL) == 0
-
-
 def listcols(df):
     return [df[c] for c in df.columns]
-
-
-def expand_DS_ALL(BOTTOMUP, demand_sector=None):
-    """
-    Expands Map when DS is ALL
-    """
-    if BOTTOMUP:
-        cond = "=="
-        data = loaders.load_param("DS_ES_STC_DemandGranularityMap",
-                                  demand_sector=demand_sector)
-    else:
-        data = loaders.load_param("DS_ES_EC_Map",
-                                  demand_sector=demand_sector)
-        cond = "!="
-
-    if fs.isnone(data):
-        return None
-
-    DS_ES_Map = loaders.get_parameter("DS_ES_Map", demand_sector=demand_sector)
-    ESs = [row for row in data.values if row[0] == 'ALL']
-
-    data_ = data.query("DemandSector != 'ALL'")
-    data_all = data.query("DemandSector == 'ALL'")
-    expanded_rows = []
-    colnames = list(data_all.columns)
-    for item in data_all.index:
-        ES = data_all.loc[item]['EnergyService']
-        nonbottomup = DS_ES_Map.query(
-            f"EnergyService == '{ES}' & InputType {cond} 'BOTTOMUP'")
-        if len(nonbottomup) > 0:
-            ds = nonbottomup['DemandSector']
-            for eachds in ds:
-                values = data_all.loc[item].copy()
-                values[colnames.index('DemandSector')] = eachds
-                expanded_rows.append(dict(zip(colnames, values)))
-    return pd.concat([data_, pd.DataFrame(expanded_rows)]).reset_index(drop=True)
 
 
 def expand_DS_ES_EC(demand_sector=None):
@@ -1401,8 +1345,7 @@ def get_service_techs(demand_sector,
     ST1 = fs.flatten([STC_to_STs(STC) for STC in STCs])
 
     ST2 = EC_to_STs(energy_carrier)
-
-    return tuple(set(ST1) & set(ST2))
+    return tuple(s for s in ST1 if s in ST2)
 
 
 def get_service_tech_categories(demand_sector,
@@ -2373,7 +2316,7 @@ def get_STs_(query):
     STCs = DS_ES_STC_DemandGranularityMap.query(query)[
         'ServiceTechCategory']
     STs = fs.flatten([STC_to_STs(STC) for STC in STCs])
-    return list([ST for ST in set(STs) if not is_nppc(ST_to_EC(ST))])
+    return list([ST for ST in fs.unique_list(STs) if not is_nppc(ST_to_EC(ST))])
 
 
 def get_STCs(ds, es):
