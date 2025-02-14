@@ -212,6 +212,14 @@ can be changed using the -o option, as follows:
  rumi_demand -m "../PIER" -s "Scenario1" -o "../PIER/Output"
 ```
 
+Depending on the input data, the following warning may appear when
+running the demand module. This warning can be ignored for now, and will be
+fixed in furture versions of Rumi.
+
+```
+DtypeWarning: Columns (0) have mixed types. Specify dtype option on import or set low_memory=False.
+```
+
 Note that, depending on the input data, validation can take a long time, even
 longer than the actual processing. Validation is enabled by default, and can be
 suppressed with the `--no-validation` option.
