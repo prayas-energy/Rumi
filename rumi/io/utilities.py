@@ -14,6 +14,7 @@
 """utilities used by all common, demand and supply.
 this should not depend on common,demand or supply modules.
 """
+from rumi.io import filemanager
 import sys
 from io import StringIO
 import datetime
@@ -50,6 +51,204 @@ def debug(f):
     return wrapper
 
 
+def is_structural_column(c):
+    all_structural_cols = constant.CONSUMER_TYPES + \
+        constant.TIME_SLICES + constant.GEOGRAPHIES
+    return c in all_structural_cols
+
+
+def expand(row, key, values):
+    """it is kind of product for one key!
+    """
+    def replace(data, v):
+        d = data.copy()
+        d[key] = v
+        return d
+
+    return (replace(row, v) for v in values)
+
+
+def expand_row_ALL(row_dict, **kwargs):
+    """expand one row into multiple rows depending on presence of "ALL" keyword.
+    row is expected as a dictionary with keys as column names and values as corresponding
+    values
+    """
+    def intcoerce(k, v):
+        if k in ['Year', 'InstYear'] and v != "ALL":
+            return int(v)
+        return v
+
+    row_dict = {k: intcoerce(k, v) for k, v in row_dict.items()}
+    cols_with_ALL = [k for k, v in row_dict.items() if v == 'ALL']
+    if not cols_with_ALL:
+        return [row_dict]
+    timecols = [t for t in constant.TIME_SLICES if t in cols_with_ALL]
+    geocols = [g for g in constant.GEOGRAPHIES if g in cols_with_ALL]
+    conscols = [c for c in constant.CONSUMER_TYPES if c in cols_with_ALL]
+    othercols = [o for o in ['InstYear'] if o in cols_with_ALL]
+    funcs = {
+        'Season': get_seasons,
+        'DayType': get_daytypes,
+        'DaySlice': get_dayslices}
+
+    def get_geographies(row, geography):
+        if geography == 'ModelGeography':
+            return [loaders.get_parameter('ModelGeography')]
+        elif geography == 'SubGeography1':
+            return loaders.get_parameter('SubGeography1')
+        elif geography == 'SubGeography2':
+            return loaders.get_parameter('SubGeography2')[row['SubGeography1']]
+        else:
+            return loaders.get_parameter('SubGeography3')[row['SubGeography2']]
+
+    def get_consumers(row, consumer, demand_sector):
+        if consumer == 'ConsumerType1':
+            return get_consumertype1_product(demand_sector)
+        else:
+            Cons1_Cons2_Map = loaders.get_parameter("Cons1_Cons2_Map",
+                                                    demand_sector=demand_sector)
+            return sum([[(t2,) for t2 in Cons1_Cons2_Map.get(row[t1], [])] for t1 in row['ConsumerType1']], [])
+
+    def get_instyears(row):
+        """This will make sure valid combination of Year and InstYear together
+        """
+
+        modelperiod = loaders.get_parameter('ModelPeriod').iloc[0]
+        return range(modelperiod['StartYear']-1, int(row['Year'])+1)
+
+    def get_years(row):
+        """This will make sure valid combination of Year and InstYear together
+        """
+        modelperiod = loaders.get_parameter('ModelPeriod').iloc[0]
+        if 'InstYear' in row and row['InstYear'] != 'ALL':
+            start = int(row['InstYear'])
+        else:
+            start = modelperiod['StartYear']
+        return range(start, modelperiod['EndYear'] + 1)
+
+    expanded = [row_dict]
+
+    if timecols and 'Year' in timecols:
+        timecols.remove('Year')
+        e = []
+        for row in expanded:
+            e.extend(expand(row, 'Year', get_years(row)))
+        expanded = e
+
+    for t in timecols:
+        e = []
+        for row in expanded:
+            e.extend(expand(row, t, funcs[t]()))
+        expanded = e
+
+    for g in geocols:
+        e = []
+        for row in expanded:
+            e.extend(expand(row, g, get_geographies(row, g)))
+        expanded = e
+
+    for c in conscols:
+        e = []
+        for row in expanded:
+            e.extend(expand(row, c, get_consumers(
+                row, c, kwargs.get('demand_sector'))))
+        expanded = e
+
+    for o in othercols:
+        e = []
+        for row in expanded:
+            e.extend(expand(row, o, get_instyears(row)))
+        expanded = e
+
+    return expanded
+
+
+def subset(data, entitynames, entityvalues):
+    """subset dataframe based on some entities and its values
+    """
+    if isinstance(entityvalues, (str, int)) or entityvalues is None:
+        entityvalues = (entityvalues,)
+
+    q = " & ".join([f"{name} == '{item}'" for name,
+                   item in zip(entitynames, entityvalues)])
+    return data.query(q)
+
+
+def row_stream(dataframe):
+    """streams datarame rows as a stream one at time
+    """
+    for row in dataframe.to_dict(orient="records"):
+        yield row
+
+
+def expand_ALL_entity(param_name, dataframe, **kwargs) -> pd.DataFrame:
+    """expand given subset of datframe for one entity
+    """
+    newdata = []
+    seen_rows = {}
+    supportedcols = get_all_CGT_columns() + ['InstYear']
+    keys = tuple(c for c in dataframe.columns if c in supportedcols)
+    for row_index, row in enumerate(row_stream(dataframe)):
+        expanded = expand_row_ALL(row, **kwargs)
+        newdata.extend(expanded)
+        for items in expanded:
+            try:
+                comb = tuple(int(items[k]) if k in [
+                    'Year', 'InstYear'] else items[k] for k in keys)
+            except:
+                logger.error(
+                    f"For {param_name}, for {kwargs.get('entityvalues', '')}, invalid values specified for Year or InstYear for row no. {row_index}, {','.join([str(i) for i in row.values()])}")
+                return None
+            # above coercing is done because at present Year and InstYear
+            # may have str/float values
+            if comb in seen_rows:
+                logger.error(
+                    f"For {param_name} duplicate combination of row {row.values()} resulted during expansion of ALL keyword for {kwargs.get('entitynames', '')} = {kwargs.get('entityvalues', '')}")
+                logger.error(
+                    f"For {param_name} duplicate row matches with {seen_rows[comb]} for {kwargs.get('entitynames', '')} = {kwargs.get('entityvalues', '')}")
+                logger.error(
+                    f"For {param_name} check carefully rows for {kwargs.get('entitynames', '')} = {kwargs.get('entityvalues', '')}")
+                return None
+            else:
+                seen_rows[comb] = list(row.values())
+
+    d = pd.DataFrame(newdata)
+    d['Year'] = pd.to_numeric(d["Year"]).astype(int)
+    if 'InstYear' in d.columns:
+        d['InstYear'] = pd.to_numeric(d['InstYear']).astype(int)
+    # d = order_rows(d)
+    return d
+
+
+def expand_ALL(param_name: str, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    """expands ALL keywords from data to add additional rows in data
+    """
+    if data is None:
+        return None
+    newdata = []
+    specs = filemanager.get_specs(param_name)
+    entities = specs.get('entities', [])
+
+    if entities:
+        data_ = data.set_index(entities)
+        for items in data_.index.unique():
+            subset_data = subset(data, entities, items)
+            expanded_data = expand_ALL_entity(param_name,
+                                              subset_data,
+                                              entityvalues=items,
+                                              entitynames=entities,
+                                              **kwargs)
+            if expanded_data is None:
+                return None
+            newdata.append(expanded_data)
+    else:
+        expanded_data = expand_ALL_entity(param_name,
+                                          data,
+                                          **kwargs)
+        newdata.append(expanded_data)
+    return pd.concat(newdata).fillna("")
+
+
 def get_all_structure_columns(data, index_cols=None):
     if not index_cols:
         index_cols = []
@@ -57,6 +256,13 @@ def get_all_structure_columns(data, index_cols=None):
     g = get_geographic_columns_from_dataframe(data)
     t = get_time_columns_from_dataframe(data)
     return index_cols+c+g+t
+
+
+def get_all_CGT_columns():
+    c = constant.CONSUMER_TYPES
+    g = constant.GEOGRAPHIES
+    t = constant.TIME_SLICES
+    return list(c+g+t)
 
 
 def base_dataframe(structural_cols,
@@ -97,13 +303,13 @@ def base_dataframe_of_granularity(CGRAN=None,
                               extracols_df=extracols_df)
 
 
-def base_dataframe_all(conscols=None,
-                       geocols=None,
-                       timecols=None,
-                       demand_sector=None,
-                       colname="dummy",
-                       val=np.nan,
-                       extracols_df=None):
+def base_dataframe_all(conscols: list = None,
+                       geocols: list = None,
+                       timecols: list = None,
+                       demand_sector: str = None,
+                       colname: str = "dummy",
+                       val: float = np.nan,
+                       extracols_df: pd.DataFrame = None) -> pd.DataFrame:
     return BaseDataFrame(conscols=conscols,
                          geocols=geocols,
                          timecols=timecols,
@@ -171,6 +377,16 @@ class BaseDataFrame:
 
         return pd.DataFrame({self.colname: [self.val]*rows},
                             index=index)
+
+
+"""        return make_dataframe_from_products(timecols=self.timecols,
+                                            geocols=self.geocols,
+                                            conscols=self.conscols,
+                                            extracols_df=self.extracols_df,
+                                            colname=self.colname,
+                                            val=self.val,
+                                            demand_sector=self.demand_sector)
+"""
 
 
 def unique_across(data, columns):
@@ -664,9 +880,19 @@ def get_cols_from_dataframe(data, type_):
 def get_base_dataframe(cols, type_, demand_sector=None):
     f = {"C": base_dataframe_consumers,
          "G": base_dataframe_geography,
-         "T": base_dataframe_time}
-    if type_ == 'C':
+         "T": base_dataframe_time,
+         "CGT": base_dataframe_all}
+    if 'C' == type_:
         return f[type_](cols, demand_sector, val=0)
+    elif "CGT" in type_:
+        conscols = [c for c in cols if c in constant.CONSUMER_TYPES]
+        geocols = [c for c in cols if c in constant.GEOGRAPHIES]
+        timecols = [c for c in cols if c in constant.TIME_SLICES]
+        return f[type_](conscols=conscols,
+                        geocols=geocols,
+                        timecols=timecols,
+                        demand_sector=demand_sector,
+                        val=0)
     return f[type_](cols, val=0)
 
 
@@ -685,6 +911,18 @@ def subset_multi(data, indexnames, items):
 
 def get_set(df):
     return set(df.itertuples(index=False, name=None))
+
+
+def check_eqality1(df1, df2):
+    return get_set(df1) == get_set(df2)
+
+
+def check_eqality2(df1, name1, df2, name2):
+    df1['dataset'] = name1
+    df2['dataset'] = name2
+    diff = df1.merge(df2, indicator=True,
+                     how='left').loc[lambda x: x['_merge'] != 'both']
+    print(diff)
 
 
 def check_CGT_validity(data,
@@ -710,13 +948,20 @@ def check_CGT_validity(data,
             subset__ = subset__[typecols]
             basedf = get_base_dataframe(
                 tuple(typecols), type_, demand_sector).reset_index()
+            del basedf['dummy']
             if exact:
-                if 'dummy' in basedf.columns:
-                    del basedf['dummy']
                 v = get_set(subset__) == get_set(basedf)
             else:
-                v = subset__.isin(basedf.to_dict(
-                    orient='list')).all().all()
+                diff = get_set(subset__) - get_set(basedf)
+                if diff:
+                    v = False
+                    logger.error(f"{name} has error in following data")
+                    for item in diff:
+                        logger.error(",".join([str(i) for i in item]))
+                else:
+                    v = True
+                # v = subset__.isin(basedf.to_dict(
+                #    orient='list')).all().all()
             if checkunique and len(subset__.drop_duplicates()) != len(subset__):
                 if item:
                     msg = f"{name} parameter for {item} has duplicate rows in {typecols} columns"
@@ -736,9 +981,13 @@ def check_CGT_validity(data,
         timecols = get_time_columns_from_dataframe(subset)
         conscols = get_consumer_columns_from_dataframe(subset)
         geographiccols = get_geographic_columns_from_dataframe(subset)
-        allcols = {"C": conscols, "G": geographiccols, "T": timecols}
-        typecols = allcols[type_]
-        indexcols = fs.flatten([v for k, v in allcols.items() if k != type_])
+        allcols = {"C": conscols,
+                   "G": geographiccols,
+                   "T": timecols}
+        typecols = fs.flatten(
+            [v for k, v in allcols.items() if k in type_])
+        indexcols = fs.flatten(
+            [v for k, v in allcols.items() if k not in type_])
         if indexcols:
             sdf = subset.set_index(indexcols)
             valid = True
@@ -776,7 +1025,7 @@ def check_duplicates(data,
                      entity_values="",
                      demand_sector="",
                      energy_service=""):
-    """Checks if given dataframe has duplicate entries in C*,G*,T* columns
+    """Checks if given dataframe has duplicate entries in given columns
     """
     dups = data.duplicated(subset=cols, keep=False)
     if dups.sum() > 0:
@@ -949,8 +1198,8 @@ def check_balancing_area_gran(param_name,
         Returns
         -------
         bool
-           True if comp is 'coarser' and granmap has granularity coarser than balancing area
-           True if comp is 'finer' and granmap has granularity finer than balancing area
+           True if comp is 'coarser' and granmap has granularity coarser than or equal to balancing area
+           True if comp is 'finer' and granmap has granularity finer than or equal to balancing area
            else False
 
     """
@@ -963,15 +1212,109 @@ def check_balancing_area_gran(param_name,
         if comp == "finer":
             if len(constant.GEO_COLUMNS[balacing_gran]) > len(constant.GEO_COLUMNS[data_gran]):
                 logger.error(
-                    f"For {param_name} geographic granularity for {entity} is incorrect. It should be finer than balancing area of {ec}")
+                    f"For {param_name} geographic granularity for {entity} is incorrect. It should be finer than or equal to balancing area of {ec}")
                 return False
         else:
             if len(constant.GEO_COLUMNS[balacing_gran]) < len(constant.GEO_COLUMNS[data_gran]):
                 logger.error(
-                    f"For {param_name} geographic granularity for {entity}, {entity_} is incorrect. It should be coarser than balancing area of {ec}")
+                    f"For {param_name} geographic granularity for {entity}, {entity_} is incorrect. It should be coarser than or equal to balancing area of {ec}")
                 return False
 
     return True
+
+
+def fill_missing_rows_with_zero_(param_name,
+                                 data,
+                                 base_dataframe_all_=base_dataframe_all,
+                                 entity_values=None,
+                                 **kwargs):
+    """core function which actually replaces missing rows with zero.
+    Approach is to generate full data frame with zero values. then
+    override it with data given by user. So automatically rows
+    that are missing in user data will become zero.
+    """
+    conscols = get_consumer_columns_from_dataframe(data)
+    if conscols:
+        demand_sector = kwargs['demand_sector']
+    else:
+        demand_sector = None
+    timecols = get_time_columns_from_dataframe(data)
+    geocols = get_geographic_columns_from_dataframe(data)
+
+    allstructural_cols = conscols+timecols+geocols
+    rest_cols = [c for c in data.columns if c not in allstructural_cols]
+
+    column = rest_cols[0]
+
+    base = base_dataframe_all_(conscols=conscols,
+                               geocols=geocols,
+                               timecols=timecols,
+                               demand_sector=demand_sector,
+                               colname=column,
+                               val=0.0).reset_index()
+    for c in rest_cols[1:]:
+        base[c] = 0.0
+    indexcols = conscols + geocols + timecols
+    demand_sector = kwargs['demand_sector'] if 'demand_sector' in kwargs else ""
+    energy_service = kwargs['energy_service'] if 'energy_service' in kwargs else ""
+    return override_dataframe_with_check(dataframe1=base,
+                                         dataframe2=data,
+                                         index_cols=indexcols,
+                                         param_name=param_name,
+                                         entity_values=entity_values,
+                                         demand_sector=demand_sector,
+                                         energy_service=energy_service)
+
+
+def fill_missing_rows_with_zero__(param_name,  data, entities,
+                                  base_dataframe_all_=base_dataframe_all,
+                                  **kwargs):
+    """Helper function to fill missing rows
+    """
+    if entities:
+        datai = data.set_index(entities)
+        dfs = []
+        index = datai.index
+        for items in index.unique():
+            if not isinstance(items, tuple):
+                items = (items,)
+            subset = data.query(" & ".join(
+                [f"{entity} == '{item}'" for entity, item in zip(index.names, items)]))
+            subset = filter_empty(subset)
+            for e, v in zip(index.names, items):
+                del subset[e]
+            d = fill_missing_rows_with_zero_(param_name,
+                                             subset,
+                                             base_dataframe_all_=base_dataframe_all_,
+                                             entity_values=items,
+                                             **kwargs)
+            diff = len(d) - len(subset)
+            if diff > 0:
+                logger.info(
+                    f"Filled {diff} missing rows with zero for {param_name} and {items}")
+            for e, v in zip(index.names, items):
+                d[e] = v
+
+            dfs.append(d)
+
+        return pd.concat(dfs).reset_index(drop=True)
+    else:
+        return fill_missing_rows_with_zero_(param_name,
+                                            data,
+                                            base_dataframe_all_=base_dataframe_all_,
+                                            **kwargs)
+
+
+def fill_missing_rows_with_zero(param_name, data, **kwargs):
+    """For given data fills in zero if some row is missing
+    """
+    if fs.isnone(data):
+        # If parameter does not exists
+        return data
+
+    specs = filemanager.get_specs(param_name)
+    entities = specs.get('entities', [])
+    return fill_missing_rows_with_zero__(param_name, data, entities, **kwargs)
 
 
 if __name__ == "__main__":

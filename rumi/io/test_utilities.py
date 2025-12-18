@@ -11,19 +11,29 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from rumi.io import common
-from rumi.io import utilities
-from rumi.io import constant
-from rumi.io import loaders
-import pandas as pd
-import pytest
+
 import numpy as np
+import pytest
+import pandas as pd
+from rumi.io import filemanager
+from rumi.io import loaders
+from rumi.io import constant
+from rumi.io import utilities
+from rumi.io import common
+
+
+def get_start_year():
+    return 2021
+
+
+def get_end_year():
+    return 2023
 
 
 def get_parameter(name, **kwargs):
     if name == "ModelPeriod":
-        return pd.DataFrame({"StartYear": [2021],
-                             "EndYear": [2022]})
+        return pd.DataFrame({"StartYear": [get_start_year()],
+                             "EndYear": [get_end_year()]})
     elif name == "Seasons":
         return utilities.make_dataframe("""Season,StartMonth,StartDate
 SUMMER,4,1
@@ -68,7 +78,10 @@ NIGHT,22"""
         return pd.DataFrame({"EnergyCarrier": []})
     elif name == "DS_Cons1_Map":
         return {'DS1': ['SUBGEOGRAPHY2', 'YEAR', 'URBAN', 'RURAL'],
+                'DS3': ['SUBGEOGRAPHY1', 'YEAR', 'ALLCONSUMERS'],
                 'DS2': ['SUBGEOGRAPHY2', 'YEAR', 'URBAN', 'RURAL']}
+    elif name == "Cons1_Cons2_Map":
+        return None
 
 
 def test_groupby_time(monkeypatch):
@@ -84,10 +97,10 @@ def test_groupby_time(monkeypatch):
     assert set(df.columns) == set(
         constant.TIME_COLUMNS['YEAR'] + ['VALUE'])
 
-    assert len(df) == 2
+    assert len(df) == 3
     # number of dayslices
     assert sum(df['VALUE'].values) == pytest.approx(
-        2*sum([v*6*days for s, days in common.seasons_size().items()]))
+        3*sum([v*6*days for s, days in common.seasons_size().items()]))
 
     # =================Season=============================
     df = utilities.groupby_time(data, [], 'SEASON', 'VALUE')
@@ -95,17 +108,17 @@ def test_groupby_time(monkeypatch):
     assert set(df.columns) == set(
         constant.TIME_COLUMNS['SEASON'] + ['VALUE'])
 
-    assert len(df) == 2*5
+    assert len(df) == 3*5
     # number of dayslices
     assert sum(df['VALUE'].values) == pytest.approx(
-        2*sum([v*6*days for s, days in common.seasons_size().items()]))
+        3*sum([v*6*days for s, days in common.seasons_size().items()]))
 
     # =================DayType=============================
     df = utilities.groupby_time(data, [], 'DAYTYPE', 'VALUE')
     assert set(df.columns) == set(
         constant.TIME_COLUMNS['DAYTYPE'] + ['VALUE'])
 
-    assert len(df) == 2*5
+    assert len(df) == 3*5
     assert df.iloc[0]['VALUE'] == pytest.approx(v*6)  # number of dayslices
 
 
@@ -174,6 +187,14 @@ def test_base_dataframe(monkeypatch):
     assert df2.equals(df1)
 
 
+def test_get_base_dataframe(monkeypatch):
+    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
+    df1 = utilities.get_base_dataframe(
+        ['SubGeography1', 'ModelGeography'], "CGT")
+    df2 = utilities.get_base_dataframe(
+        ['SubGeography1', 'ModelGeography'], "G")
+
+
 def test_compute_product_geo(monkeypatch):
     monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
     with pytest.raises(utilities.InValidColumnsError):
@@ -210,10 +231,10 @@ def test_groupby(monkeypatch):
     assert set(df.columns) == set(
         constant.TIME_COLUMNS['YEAR'] + ['VALUE'])
 
-    assert len(df) == 2
+    assert len(df) == 3
     # number of dayslices
     assert sum(df['VALUE'].values) == pytest.approx(
-        2*sum([v*6*days for s, days in common.seasons_size().items()]))
+        3*sum([v*6*days for s, days in common.seasons_size().items()]))
 
     # =================Season=============================
     df = utilities.groupby(data, ['Year', 'Season'], 'VALUE').reset_index()
@@ -221,10 +242,10 @@ def test_groupby(monkeypatch):
     assert set(df.columns) == set(
         constant.TIME_COLUMNS['SEASON'] + ['VALUE'])
 
-    assert len(df) == 2*5
+    assert len(df) == 3*5
     # number of dayslices
     assert sum(df['VALUE'].values) == pytest.approx(
-        2*sum([v*6*days for s, days in common.seasons_size().items()]))
+        3*sum([v*6*days for s, days in common.seasons_size().items()]))
 
     # =================DayType=============================
     df = utilities.groupby(
@@ -232,7 +253,7 @@ def test_groupby(monkeypatch):
     assert set(df.columns) == set(
         constant.TIME_COLUMNS['DAYTYPE'] + ['VALUE'])
 
-    assert len(df) == 2*5
+    assert len(df) == 3*5
     assert df.iloc[0]['VALUE'] == pytest.approx(v*6)  # number of dayslices
 
     # =====================================================
@@ -243,16 +264,16 @@ def test_groupby(monkeypatch):
     df = utilities.groupby(
         data, constant.TIME_COLUMNS['SEASON'], 'VALUE').reset_index()
 
-    assert len(df) == 2*5
+    assert len(df) == 3*5
     assert sum(df['VALUE'].values) == pytest.approx(
-        2*sum([v*days for s, days in common.seasons_size().items()]))
+        3*sum([v*days for s, days in common.seasons_size().items()]))
 
     df = utilities.groupby(
         data, constant.TIME_COLUMNS['YEAR'], 'VALUE').reset_index()
 
-    assert len(df) == 2
+    assert len(df) == 3
     assert sum(df['VALUE'].values) == pytest.approx(
-        2*sum([v*days for s, days in common.seasons_size().items()]))
+        3*sum([v*days for s, days in common.seasons_size().items()]))
 
     df2 = utilities.groupby(
         df, constant.TIME_COLUMNS['YEAR'], 'VALUE').reset_index()
@@ -302,7 +323,7 @@ def test_check_source_dest(monkeypatch):
                     else:
                         s = 6
                     assert sum(dest['VALUE'].values) == pytest.approx(
-                        2*s*sum([v*days for s, days in common.seasons_size().items()]))
+                        3*s*sum([v*days for s, days in common.seasons_size().items()]))
                 elif gran == 'Season' and destcols[-1] == 'Year':
                     assert len(dest) == len(utilities.get_years())
                     assert dest['VALUE'].values == pytest.approx(
@@ -361,6 +382,21 @@ def test_check_CGT_validity(monkeypatch):
         data, 'TESTPARAM', 'Entity', "G", demand_sector='DS1', exact=True)
     assert utilities.check_CGT_validity(
         data, 'TESTPARAM', 'Entity', "T", demand_sector='DS1', exact=True)
+
+    subset = data.drop([0, 1, 2, 3, 5])
+    assert not utilities.check_CGT_validity(
+        subset, 'TESTPARAM', 'Entity', "C", demand_sector='DS1', exact=True)
+    assert not utilities.check_CGT_validity(
+        subset, 'TESTPARAM', 'Entity', "G", demand_sector='DS1', exact=True)
+    assert not utilities.check_CGT_validity(
+        subset, 'TESTPARAM', 'Entity', "T", demand_sector='DS1', exact=True)
+
+    assert utilities.check_CGT_validity(
+        subset, 'TESTPARAM', 'Entity', "C", demand_sector='DS1', exact=False)
+    assert utilities.check_CGT_validity(
+        subset, 'TESTPARAM', 'Entity', "G", demand_sector='DS1', exact=False)
+    assert utilities.check_CGT_validity(
+        subset, 'TESTPARAM', 'Entity', "T", demand_sector='DS1', exact=False)
 
     data = utilities.base_dataframe_of_granularity(CGRAN='CONSUMERTYPE1',
                                                    GGRAN='SUBGEOGRAPHY1',
@@ -480,3 +516,377 @@ REST,4,1
 XXX,5,1""")
     assert utilities.compute_intervals(seasons) == {
         'SUMMER': 0, 'REST': 30, 'XXX': 335}
+
+
+def test_expand_ALL(monkeypatch):
+    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {'entities': []})
+    data = utilities.base_dataframe_all(geocols=['ModelGeography'],
+                                        conscols=['ConsumerType1'],
+                                        timecols=['Year'],
+                                        demand_sector="DS1",
+                                        val=0,
+                                        colname="value",
+                                        extracols_df=None).reset_index()
+    data.insert(2, 'SubGeography1', 'ALL')
+    # print(data)
+    d = utilities.expand_ALL("Test", data)
+    d2 = utilities.base_dataframe_all(geocols=['ModelGeography', 'SubGeography1'],
+                                      conscols=['ConsumerType1'],
+                                      timecols=['Year'],
+                                      demand_sector="DS1",
+                                      val=0,
+                                      colname="value",
+                                      extracols_df=None).reset_index()
+
+    assert len(d) == len(d2)
+    d.insert(0, 'EnergyCarrier', 'TEST')
+    assert utilities.check_CGT_validity(
+        d, "Test_param", 'EnergyCarrier', "G", demand_sector='DS1', exact=True)
+    data = utilities.base_dataframe_all(timecols=['Year'],
+                                        val=0,
+                                        colname="value",
+                                        extracols_df=None).reset_index()
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+    data['EnergyCarrier'] = 'TnergyCarrier'
+    data['ConsumerType1'] = 'ALL'
+    data['ModelGeography'] = 'ALL'
+    data['SubGeography1'] = 'ALL'
+    data['SubGeography2'] = 'ALL'
+    data['Season'] = 'ALL'
+    d = utilities.expand_ALL("Test", data, demand_sector='DS1')
+    d2 = utilities.base_dataframe_all(timecols=['Year', 'Season'],
+                                      geocols=['ModelGeography',
+                                               'SubGeography1', 'SubGeography2'],
+                                      conscols=['ConsumerType1'],
+                                      demand_sector='DS1',
+                                      val=0,
+                                      colname="value",
+                                      extracols_df=None).reset_index()
+    d2.insert(0, 'EnergyCarrier', 'TnergyCarrier')
+    assert len(d) == len(d2)
+    assert utilities.check_CGT_validity(
+        d, 'Test_param', 'EnergyCarrier', "G", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_param', 'EnergyCarrier', "T", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_param', 'EnergyCarrier', "C", demand_sector='DS1', exact=True)
+
+    row = (d.iloc[0, :]).to_dict()
+    row['SubGeography2'] = 'ALL'
+    d2 = pd.concat([d, pd.DataFrame([row])])
+    d = utilities.expand_ALL('Test', d2)
+
+    assert d is None  # this is supposed to have overlaping rows
+
+    # ============ check 'ALL' as ConsumerType1 ==================
+    data = utilities.base_dataframe_all(timecols=['Year'],
+                                        val=0,
+                                        colname="value",
+                                        extracols_df=None).reset_index()
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+
+    data['EnergyCarrier'] = 'TnergyCarrier'
+    data['ConsumerType1'] = 'ALL'
+    data['ModelGeography'] = 'ALL'
+    data['SubGeography1'] = 'ALL'
+    d = utilities.expand_ALL("Test", data, demand_sector='DS3')
+    d2 = utilities.base_dataframe_all(timecols=['Year'],
+                                      geocols=['ModelGeography',
+                                               'SubGeography1'],
+                                      conscols=['ConsumerType1'],
+                                      demand_sector='DS3',
+                                      val=0,
+                                      colname="value",
+                                      extracols_df=None).reset_index()
+    d2.insert(0, 'EnergyCarrier', 'TnergyCarrier')
+    assert len(d) == len(d2)
+    assert utilities.check_CGT_validity(
+        d, 'Test_param', 'EnergyCarrier', "G", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_param', 'EnergyCarrier', "T", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_param', 'EnergyCarrier', "C", demand_sector='DS3', exact=True)
+
+    # ============ check 'ALL' as InstYear ==================
+    data = utilities.base_dataframe_all(timecols=['Year'],
+                                        val=0,
+                                        colname="value",
+                                        extracols_df=None).reset_index()
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+
+    data['EnergyCarrier'] = 'TnergyCarrier'
+    data['ModelGeography'] = 'ALL'
+    data['SubGeography1'] = 'ALL'
+    data['InstYear'] = 'ALL'
+    data.to_csv("/tmp/base.csv", index=False)
+    d = utilities.expand_ALL("Test", data)
+    years = utilities.get_years()
+    instyear = pd.DataFrame([{'Year': y, 'InstYear': iy}
+                            for y in years for iy in range(years[0]-1, y+1)])
+    d2 = utilities.base_dataframe_all(timecols=['Year'],
+                                      geocols=['ModelGeography',
+                                               'SubGeography1'],
+                                      val=0,
+                                      colname="value",
+                                      extracols_df=None).reset_index()
+    d2.insert(0, 'EnergyCarrier', 'TnergyCarrier')
+    d2 = d2.merge(instyear, on='Year')
+    d.to_csv("/tmp/test.csv")
+    assert len(d) == len(d2)
+    assert utilities.check_CGT_validity(
+        d, 'Test_G', ['EnergyCarrier', 'InstYear'], "G", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_T', ['EnergyCarrier', 'InstYear'], "T", exact=False)
+    # peculiarity of InstYear does not allow exact check!
+    for year in years:
+        dy = d.query(f'Year == {year}')
+        assert set(dy.InstYear.values) == set(range(years[0]-1, year+1))
+
+
+def test_expand_ALL_extra(monkeypatch):
+    # ---------- Case 1: data is None ----------
+    assert utilities.expand_ALL("Test", None) is None
+
+    # ---------- Case 2: no ALL present ----------
+    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {'entities': []})
+    df = pd.DataFrame([{'Year': 2021, 'ModelGeography': 'INDIA', 'value': 1}])
+    d = utilities.expand_ALL("Test", df)
+    # Should be unchanged
+    assert d.equals(df)
+
+    # ---------- Case 3: duplicate expansion (ConsumerType2 overlap) ----------
+    """
+    data = utilities.base_dataframe_all(timecols=['Year'],
+                                        val=0,
+                                        colname="value").reset_index()
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+    data['EnergyCarrier'] = 'X'
+    data['ConsumerType1'] = 'ALL'
+    data['ConsumerType2'] = 'ALL'
+    data['ModelGeography'] = 'ALL'
+    data['SubGeography1'] = 'ALL'
+    d = utilities.expand_ALL("Test", data, demand_sector="DS1")
+    # This will create duplicates (since Cons1_Cons2_Map may overlap)
+    # so expand_ALL should return None
+    assert d is None
+    """
+
+    # ---------- Case 4: entities non-empty ----------
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+    df = pd.DataFrame([{'Year': 2021,
+                        'EnergyCarrier': 'X',
+                        'ModelGeography': 'ALL',
+                        'value': 2}])
+    d = utilities.expand_ALL("Test", df)
+    # Expanded geography should create multiple rows
+    assert len(d.ModelGeography == 'INDIA') == len(d)
+
+    # ---------- Case 5: ALL in unsupported column ----------
+    df = pd.DataFrame([{'Year': 2021,
+                        'EnergyCarrier': 'X',
+                        'FooCol': 'ALL',
+                        'ModelGeography': 'INDIA',
+                        'value': 3}])
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {'entities': []})
+    d = utilities.expand_ALL("Test", df)
+    # FooCol=ALL should remain unchanged (not expanded)
+    assert set(d['FooCol']) == {'ALL'}
+
+
+def test_expand_ALL_with_YearFloat(monkeypatch, caplog):
+    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {'entities': []})
+    data = utilities.base_dataframe_all(timecols=['Year'],
+                                        val=0,
+                                        colname="value",
+                                        extracols_df=None).reset_index()
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+
+    data['EnergyCarrier'] = 'TnergyCarrier'
+    data['ModelGeography'] = 'ALL'
+    data['SubGeography1'] = 'ALL'
+    data['InstYear'] = 'ALL'
+    data['Year'] = data['Year'].astype(float)
+    with caplog.at_level("ERROR"):
+        d = utilities.expand_ALL("Test", data)
+    assert "duplicate combination of row" not in caplog.text
+    assert "duplicate row matches with" not in caplog.text
+    years = utilities.get_years()
+    instyear = pd.DataFrame([{'Year': y, 'InstYear': iy}
+                             for y in years for iy in range(years[0]-1, y+1)])
+    d2 = utilities.base_dataframe_all(timecols=['Year'],
+                                      geocols=['ModelGeography',
+                                               'SubGeography1'],
+                                      val=0,
+                                      colname="value",
+                                      extracols_df=None).reset_index()
+    d2.insert(0, 'EnergyCarrier', 'TnergyCarrier')
+    d2 = d2.merge(instyear, on='Year')
+    assert len(d) == len(d2)
+    assert utilities.check_CGT_validity(
+        d, 'Test_G', ['EnergyCarrier', 'InstYear'], "G", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_T', ['EnergyCarrier', 'InstYear'], "T", exact=False)
+    # peculiarity of InstYear does not allow exact check
+    for year in years:
+        dy = d.query(f'Year == {year}')
+        assert set(dy.InstYear.values) == set(range(years[0]-1, year+1))
+
+
+def test_expand_ALL_with_YearStr(monkeypatch, caplog):
+    monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {'entities': []})
+    data = utilities.base_dataframe_all(timecols=['Year'],
+                                        val=0,
+                                        colname="value",
+                                        extracols_df=None).reset_index()
+    monkeypatch.setattr(filemanager, 'get_specs', lambda x: {
+                        'entities': ['EnergyCarrier']})
+
+    data['EnergyCarrier'] = 'TnergyCarrier'
+    data['ModelGeography'] = 'ALL'
+    data['SubGeography1'] = 'ALL'
+    data['InstYear'] = 'ALL'
+    data['Year'] = data['Year'].astype(str)
+    with caplog.at_level("ERROR"):
+        d = utilities.expand_ALL("Test", data)
+    assert "duplicate combination of row" not in caplog.text
+    assert "duplicate row matches with" not in caplog.text
+    years = utilities.get_years()
+    instyear = pd.DataFrame([{'Year': y, 'InstYear': iy}
+                             for y in years for iy in range(years[0]-1, y+1)])
+    d2 = utilities.base_dataframe_all(timecols=['Year'],
+                                      geocols=['ModelGeography',
+                                               'SubGeography1'],
+                                      val=0,
+                                      colname="value",
+                                      extracols_df=None).reset_index()
+    d2.insert(0, 'EnergyCarrier', 'TnergyCarrier')
+    d2 = d2.merge(instyear, on='Year')
+    assert len(d) == len(d2)
+    assert utilities.check_CGT_validity(
+        d, 'Test_G', ['EnergyCarrier', 'InstYear'], "G", exact=True)
+    assert utilities.check_CGT_validity(
+        d, 'Test_T', ['EnergyCarrier', 'InstYear'], "T", exact=False)
+    # peculiarity of InstYear does not allow exact check
+    for year in years:
+        dy = d.query(f'Year == {year}')
+        assert set(dy.InstYear.values) == set(range(years[0]-1, year+1))
+
+
+def test_expand_row_ALL(monkeypatch):
+    monkeypatch.setattr(loaders, "get_parameter", get_parameter)
+    row = {"Year": "ALL",
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER",
+           "InstYear": 2021}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 3
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == list(
+        range(get_start_year(), get_end_year() + 1))
+    assert list(df.InstYear.values) == [2021]*3
+    assert (df.Year < df.InstYear).sum() == 0
+
+    row = {"Year": "ALL",
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER",
+           "InstYear": 2023}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 1
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == list(
+        range(row['InstYear'], get_end_year() + 1))
+    assert list(df.InstYear.values) == [2023]
+    assert (df.Year < df.InstYear).sum() == 0
+
+    row = {"InstYear": 2023,
+           "Year": "ALL",
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER"}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 1
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == list(
+        range(row['InstYear'], get_end_year() + 1))
+    assert list(df.InstYear.values) == [2023]
+    assert (df.Year < df.InstYear).sum() == 0
+
+    row = {"Year": 2023,
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER",
+           "InstYear": "ALL"}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 4
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == [2023]*4
+    assert list(df.InstYear.values) == list(
+        range(get_start_year()-1, get_end_year()+1))
+    assert (df.Year < df.InstYear).sum() == 0
+
+    row = {"Year": "ALL",
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER",
+           "InstYear": "ALL"}
+
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 4+3+2
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == [2021, 2021,
+                                    2022, 2022, 2022, 2023, 2023, 2023, 2023]
+    assert list(df.InstYear.values) == [
+        2020, 2021, 2020, 2021, 2022, 2020, 2021, 2022, 2023]
+    assert (df.Year < df.InstYear).sum() == 0
+
+    row = {"Year": 2022,
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER",
+           "InstYear": 2021}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 1
+    df = pd.DataFrame(expanded)
+    assert df.Year.values == [2022]
+    assert df.InstYear.values == [2021]
+    assert (df.Year < df.InstYear).sum() == 0
+
+    # Year as str not as int
+    row = {"Year": "2023",
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER",
+           "InstYear": "ALL"}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 4
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == [2023]*4
+    assert list(df.InstYear.values) == list(
+        range(get_start_year()-1, get_end_year()+1))
+    assert (df.Year.astype(int) < df.InstYear).sum() == 0
+
+    # InstYear as Str
+    row = {"InstYear": "2023",
+           "Year": "ALL",
+           "Season": "SUMMER",
+           "ModelGeography": "INDIA",
+           "SubGeography1": "ER"}
+    expanded = utilities.expand_row_ALL(row)
+    assert len(expanded) == 1
+    df = pd.DataFrame(expanded)
+    assert list(df.Year.values) == list(
+        range(int(row['InstYear']), get_end_year() + 1))
+    assert list(df.InstYear.values) == [2023]
+    assert (df.Year < df.InstYear.astype(int)).sum() == 0

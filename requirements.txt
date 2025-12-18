@@ -1,5 +1,6 @@
 chardet==5.2.0
 click==8.1.7
+click-option-group==0.5.9
 coverage==7.6.1
 exceptiongroup==1.2.2
 iniconfig==2.0.0
@@ -17,3 +18,4 @@ PyYAML==6.0.2
 six==1.16.0
 tomli==2.0.1
 tzdata==2024.1
+setuptools<80

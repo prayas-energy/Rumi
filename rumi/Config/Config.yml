@@ -62,4 +62,4 @@ symbolic_solver_labels: false
 # It denotes the common Energy Unit to be used for computing TPES across all relevant Energy Carriers
 # The common Energy Unit so specified, must be present in EnergyUnitConversion.csv
 #
-#TPES_EU: EJ
+TPES_EU: PJ

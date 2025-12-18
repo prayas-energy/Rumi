@@ -1033,7 +1033,9 @@ def coarsest(ds_es_ec, take_cons_cols):
     return constant.TIME_COLUMNS[t] + constant.GEO_COLUMNS[g] + conscols
 
 
-def get_group_cols_for_ec(ec):
+def get_balancing_group_cols_for_ec(ec):
+    """get G*,T* columns for balancing area and balancing time of given ec
+    """
     g = get_geographic_columns(demandio.balancing_area(ec))
     t = get_time_columns(demandio.balancing_time(ec))
     return t+g
@@ -1051,9 +1053,9 @@ def finest_balancing_columns(ds_es_ec):
 
 
 def compute_demand_balancing(demand_sector, energy_service, energy_carrier):
-    """aggregates the demand over balancing area and balancing time
+    """aggregates the demand over balancing area and balancing time if demand is finer else it passes the demand as it is.
     """
-    cols = get_group_cols_for_ec(energy_carrier)
+    cols = get_balancing_group_cols_for_ec(energy_carrier)
     return compute_demand_with_coarseness(demand_sector,
                                           energy_service,
                                           energy_carrier,
@@ -1066,9 +1068,8 @@ def compute_demand_with_coarseness(demand_sector,
                                    energy_carrier,
                                    columns,
                                    flag=False):
-    """aggregates the demand over the granularity given by columns if passed columns are of coarser granuarity.
-    if passed columns are of finer granularity than demand , then demand is returned just by aggrigating over
-    the existing granularity of demand
+    """ if flag is true then aggregates the demand over the granularity given by columns if passed columns are of coarser granuarity.
+    if passed columns are of finer granularity than demand , then demand is returned just at granularity of the demand as it is.
     """
     demand = compute_demand(demand_sector, energy_service, energy_carrier)
     if flag:

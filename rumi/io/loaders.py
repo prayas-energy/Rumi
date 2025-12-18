@@ -133,6 +133,7 @@ def validate_each_item(param: str, spec: dict, data):
 
     if not spec.get("noheader"):
         for column_, metadata in spec['columns'].items():
+            metadata = metadata or {}
             if column_ not in data.columns:
                 if metadata.get('optional'):
                     continue
@@ -143,7 +144,7 @@ def validate_each_item(param: str, spec: dict, data):
                         f"Expected column {column_} not found in {param}")
             c = data[column_]
 
-            if 'min' in spec['columns'].get(column_, {}):
+            if 'min' in (spec['columns'].get(column_, {}) or {}):
                 m = spec['columns'][column_]['min']
                 default = spec['columns'][column_].get('default')
                 if (c < m).any() and (c[c < m] != default).any():
@@ -151,7 +152,7 @@ def validate_each_item(param: str, spec: dict, data):
                         f"for {param}, {column_} should be >= {m}")
                     return False
 
-            if 'max' in spec['columns'].get(column_, {}):
+            if 'max' in (spec['columns'].get(column_, {}) or {}):
                 m = spec['columns'][column_]['max']
                 if (c > m).any():
                     logger.error(
@@ -234,16 +235,18 @@ def get_params(specs, threaded=False):
             return get_parameter(param, validation=True)
         except FileNotFoundError as fn:
             logger.exception(fn)
-            raise fn
+            logger.exception(fn)
         except filemanager.FolderStructureError as fse:
             logger.exception(fse)
-            raise fse
+            logger.exception(fse)
         except TypeError as tpe:
             logger.debug(f"Automatic loading of {param} failed.")
-            raise tpe
+            logger.exception(tpe)
         except KeyError as ke:
             logger.debug(f"Automatic loading of {param} failed.")
-            raise ke
+            logger.exception(ke)
+        except Exception as e:
+            logger.exception(e)
 
     param_names = [p for p in specs.keys() if p != 'global_validation']
     if threaded:
@@ -433,12 +436,32 @@ def get_parameter(param_name, **kwargs):
 
     """
     r = get_parameter_(param_name, **kwargs)
+    r = preapply_function(param_name, r, **kwargs)
     r = filter_param(param_name, r, **kwargs)
     return apply_function(param_name, r, **kwargs)
 
 
-def apply_function(param_name, data, **kwargs):
+def preapply_function(param_name, data, **kwargs):
     """applies this function to parsed data before passing it to filter.
+    **kwargs has **kwargs passed from get_parameter
+    """
+    specs = filemanager.get_specs(param_name)
+    if "preapply" in specs:
+        # don't skip this stage if data is none.
+        # the functions to be applied should takes care of it.
+        funcname = specs['preapply']
+        if "validation" in kwargs:
+            del kwargs['validation']
+        return call_function(funcname,
+                             param_name=param_name,
+                             data=data,
+                             **kwargs)
+    else:
+        return data
+
+
+def apply_function(param_name, data, **kwargs):
+    """applies this function to parsed data after passing it to filter.
     **kwargs has **kwargs passed from get_parameter
     """
     specs = filemanager.get_specs(param_name)
@@ -580,23 +603,37 @@ def get_absent_columns(detected_cols, cols_sepc):
     return [c for c, data in absent.items() if not data.get("optional", False)]
 
 
+def check_columns(param_name, filepath):
+    specs = filemanager.get_specs(param_name)
+    columndata = specs['columns']
+    cols = find_cols(filepath, columndata)
+    absentcols = get_absent_columns(cols, columndata)
+    if absentcols:
+        raise LoaderError(
+            f"Columns {absentcols} missing from parameter {param_name}")
+    return cols
+
+
 def read_csv(param_name, filepath):
     """read dataframe using pandas.read_csv, but with appropriate types
     """
     specs = filemanager.get_specs(param_name)
     columndata = specs['columns']
-    converters = {c: eval(data['type']) for c, data in columndata.items()}
+    converters = {c: eval(data['type'])
+                  for c, data in columndata.items() if data and 'type' in data}
     try:
-        cols = find_cols(filepath, columndata)
-        absentcols = get_absent_columns(cols, columndata)
-        if absentcols:
-            raise LoaderError(
-                f"Columns {absentcols} missing from parameter {param_name}")
+        cols = check_columns(param_name, filepath)
+        args = {"usecols": cols,
+                "converters": converters,
+                "na_values": "",
+                }
+
+        if not converters:
+            args['low_memory'] = False
 
         return pd.read_csv(filepath,
-                           usecols=cols,
-                           converters=converters,
-                           na_values="")
+                           **args
+                           )
 
     except ValueError as v:
         logger.error(f"Unable to parse data for {param_name}")
@@ -675,7 +712,6 @@ def rumi_validate(param_type: str,
     if not Path(filemanager.scenario_path()).is_dir():
         print(f"Scenario {scenario} does not exist.")
         sys.exit(1)
-
 
     init_logger(param_type, logger_level)
     logger = logging.getLogger("rumi.io.loaders")

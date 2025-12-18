@@ -302,10 +302,10 @@ def combine_physical_carriers():
         "PhysicalPrimaryCarriersEnergyDensity")
     PhysicalDerivedCarriers = loaders.get_parameter(
         "PhysicalDerivedCarriersEnergyDensity")
-    PDC = PhysicalDerivedCarriers.rename(
-        columns={"EnergyDensity": "DomEnergyDensity"})
-    PDC['ImpEnergyDensity'] = PDC['DomEnergyDensity']
-    return pd.concat([PDC, PhysicalPrimaryCarriers])
+    # PDC = PhysicalDerivedCarriers.rename(
+    # columns = {"EnergyDensity": "DomEnergyDensity"})
+    # PDC['ImpEnergyDensity'] = PDC['DomEnergyDensity']
+    return pd.concat([PhysicalDerivedCarriers, PhysicalPrimaryCarriers])
 
 
 def handle_day_no(data):

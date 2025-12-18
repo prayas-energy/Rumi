@@ -38,6 +38,7 @@ from rumi.io.common import balancing_area, balancing_time
 from rumi.io.utilities import check_consumer_validity
 from rumi.io.utilities import check_geographic_validity
 from rumi.io.utilities import check_time_validity
+from rumi.io.utilities import subset
 from rumi.io.multiprocessutils import execute_in_process_pool
 logger = logging.getLogger(__name__)
 print = functools.partial(print, flush=True)
@@ -101,7 +102,10 @@ def get_ds_es_stc_map():
 
 
 def get_combined(name):
-    DS_List = loaders.get_parameter("DS_List")
+    try:
+        DS_List = loaders.get_parameter("DS_List")
+    except FileNotFoundError as fne:
+        return None
     dfs = []
     for ds in DS_List:
         combined_map = loaders.get_parameter(name,
@@ -305,96 +309,36 @@ def get_all_STC_ST_pairs(demand_sector, energy_service):
 
 def fill_missing_rows_with_zero_(param_name,
                                  data,
-                                 base_dataframe_all=utilities.base_dataframe_all,
+                                 base_dataframe_all_=utilities.base_dataframe_all,
                                  entity_values=None,
                                  **kwargs):
-    """core function which actually replaces missing rows with zero.
-    Approach is to generate full data frame with zero values. then
-    override it with data given by user. So automatically rows
-    that are missing in user data will become zero.
-    """
-    conscols = utilities.get_consumer_columns_from_dataframe(data)
-    if conscols:
-        demand_sector = kwargs['demand_sector']
-    else:
-        demand_sector = None
-    timecols = utilities.get_time_columns_from_dataframe(data)
-    geocols = utilities.get_geographic_columns_from_dataframe(data)
-
-    allstructural_cols = conscols+timecols+geocols
-    rest_cols = [c for c in data.columns if c not in allstructural_cols]
-
-    column = rest_cols[0]
-
-    base = base_dataframe_all(conscols=conscols,
-                              geocols=geocols,
-                              timecols=timecols,
-                              demand_sector=demand_sector,
-                              colname=column,
-                              val=0.0).reset_index()
-    for c in rest_cols[1:]:
-        base[c] = 0.0
-    indexcols = conscols + geocols + timecols
-    demand_sector = kwargs['demand_sector'] if 'demand_sector' in kwargs else ""
-    energy_service = kwargs['energy_service'] if 'energy_service' in kwargs else ""
-    return utilities.override_dataframe_with_check(dataframe1=base,
-                                                   dataframe2=data,
-                                                   index_cols=indexcols,
-                                                   param_name=param_name,
-                                                   entity_values=entity_values,
-                                                   demand_sector=demand_sector,
-                                                   energy_service=energy_service)
+    return utilities.fill_missing_rows_with_zero_(param_name,
+                                                  data,
+                                                  base_dataframe_all_=base_dataframe_all_,
+                                                  entity_values=entity_values,
+                                                  **kwargs)
 
 
-def fill_missing_rows_with_zero__(param_name,  data, entities,
-                                  base_dataframe_all=utilities.base_dataframe_all,
+def fill_missing_rows_with_zero__(param_name,
+                                  data,
+                                  entities,
+                                  base_dataframe_all_=utilities.base_dataframe_all,
                                   **kwargs):
     """Helper function to fill missing rows
     """
-    if entities:
-        datai = data.set_index(entities)
-        dfs = []
-        index = datai.index
-        for items in index.unique():
-            if not isinstance(items, tuple):
-                items = (items,)
-            subset = data.query(" & ".join(
-                [f"{entity} == '{item}'" for entity, item in zip(index.names, items)]))
-            subset = utilities.filter_empty(subset)
-            for e, v in zip(index.names, items):
-                del subset[e]
-            d = fill_missing_rows_with_zero_(param_name,
-                                             subset,
-                                             base_dataframe_all=base_dataframe_all,
-                                             entity_values=items,
-                                             **kwargs)
-            diff = len(d) - len(subset)
-            if diff > 0:
-                logger.info(
-                    f"Filled {diff} missing rows with zero for {param_name} and {items}")
-            for e, v in zip(index.names, items):
-                d[e] = v
-
-            dfs.append(d)
-
-        return pd.concat(dfs).reset_index(drop=True)
-    else:
-        return fill_missing_rows_with_zero_(param_name,
-                                            data,
-                                            base_dataframe_all=base_dataframe_all,
-                                            **kwargs)
+    return utilities.fill_missing_rows_with_zero__(param_name,
+                                                   data,
+                                                   entities,
+                                                   base_dataframe_all_=base_dataframe_all_,
+                                                   **kwargs)
 
 
 def fill_missing_rows_with_zero(param_name, data, **kwargs):
     """For given data fills in zero if some row is missing
     """
-    if fs.isnone(data):
-        # If parameter does not exists
-        return data
-
-    specs = filemanager.get_specs(param_name)
-    entities = specs.get('entities', [])
-    return fill_missing_rows_with_zero__(param_name, data, entities, **kwargs)
+    return utilities.fill_missing_rows_with_zero(param_name,
+                                                 data,
+                                                 **kwargs)
 
 
 class BaseYearDemandBaseData(utilities.BaseDataFrame):
@@ -451,7 +395,7 @@ def fill_missing_rows_with_zero_baseyeardemand(param_name, data, **kwargs):
     return fill_missing_rows_with_zero__(param_name,
                                          data,
                                          entities,
-                                         base_dataframe_all=baseyear_base_data,
+                                         base_dataframe_all_=baseyear_base_data,
                                          **kwargs)
 
 
@@ -759,6 +703,8 @@ def get_ES_Demand(demand_sector,
                                           'ES_Demand',
                                           prefix)
     logger.debug(f"Reading {prefix}ES_Demand from file {filepath}")
+    # there are some columns which are not mentioned in yaml specs for
+    # this parameter
     return pd.read_csv(filepath)
 
 
@@ -859,11 +805,11 @@ def get_DS_ES_parameter(param_name,
             param_name, demand_sector, energy_service, prefix)
         if os.path.exists(default_file):
             logger.debug(f"Reading {param_name} from file {default_file}")
-            default_df = pd.read_csv(default_file)
+            default_df = pd.read_csv(default_file, low_memory=False)
             default_df = default_df[[
                 c for c in cols if c in default_df.columns]]
             if os.path.exists(filepath):
-                over_df = pd.read_csv(filepath)
+                over_df = pd.read_csv(filepath, low_memory=False)
                 over_df = over_df[[c for c in cols if c in over_df.columns]]
                 check_extra_rows_for_es(over_df,
                                         param_name,
@@ -888,10 +834,11 @@ def get_DS_ES_parameter(param_name,
                 d = default_df
         else:
             logger.debug(f"Reading {param_name} from file {filepath}")
-            d = pd.read_csv(filepath)
+            d = pd.read_csv(filepath, low_memory=False)
     else:
         logger.debug(f"Reading {param_name} from file {filepath}")
-        d = pd.read_csv(filepath)
+        d = pd.read_csv(filepath, low_memory=False)
+
     return d[[c for c in cols if c in d.columns]]
 
 
@@ -1917,15 +1864,6 @@ def validate_each_demand_param(name, data, **kwargs):
                                   **kwargs)
 
 
-def subset(data, indexnames, items):
-    if isinstance(items, (str, int)) or items is None:
-        items = (items,)
-
-    q = " & ".join([f"{name} == '{item}'" for name,
-                    item in zip(indexnames, items)])
-    return data.query(q)
-
-
 def check_EfficiencyLevelSplit_granularity():
     return _check_DS_ES_granularity("EfficiencyLevelSplit")
 
@@ -1940,6 +1878,8 @@ def check_TechSplitRatio_granularity():
 
 def get_bottomup_ds_es():
     DS_ES_Map = get_combined("DS_ES_Map")
+    if DS_ES_Map is None:
+        return []
     ds_es = DS_ES_Map.query("InputType == 'BOTTOMUP'")[
         ['DemandSector', 'EnergyService']].copy().values
     return ds_es
@@ -1947,6 +1887,8 @@ def get_bottomup_ds_es():
 
 def get_nonbottomup_ds_es():
     DS_ES_Map = get_combined("DS_ES_Map")
+    if DS_ES_Map is None:
+        return []
     ds_es = DS_ES_Map.query("InputType != 'BOTTOMUP'")[
         ['DemandSector', 'EnergyService']].copy().values
     return ds_es

@@ -18,6 +18,7 @@ from rumi.io import utilities
 from rumi.io import loaders
 import pytest
 
+
 def test_drop_columns():
     a = [[10, 20, 30, 40],
          [21, 22, 23, 24],
@@ -67,32 +68,35 @@ def test_valid_geography(monkeypatch):
 def test_get_base_energy_density(monkeypatch):
     def get_parameter(name, *kwargs):
         if name == "ModelPeriod":
-            return pd.DataFrame({"StartYear":[2021],
-                                 "EndYear":[2025]})
+            return pd.DataFrame({"StartYear": [2021],
+                                 "EndYear": [2025]})
         elif name == "PhysicalDerivedCarriers":
-            return utilities.make_dataframe("""EnergyCarrier,BalancingArea,BalancingTime,EnergyUnit,PhysicalUnit,EnergyDensity
-MS,MODELGEOGRAPHY,YEAR,PJ,MT,44.79876
-HSD,MODELGEOGRAPHY,YEAR,PJ,MT,43.33338
-ATF,MODELGEOGRAPHY,YEAR,PJ,MT,44.58942""")
+            return utilities.make_dataframe("""EnergyCarrier,BalancingArea,BalancingTime,EnergyUnit,PhysicalUnit,DomEnergyDensity,ImpEnergyDensity
+MS,MODELGEOGRAPHY,YEAR,PJ,MT,44.79876,44.79876
+HSD,MODELGEOGRAPHY,YEAR,PJ,MT,43.33338,43.33338
+ATF,MODELGEOGRAPHY,YEAR,PJ,MT,44.58942,44.58942""")
         else:
             return None
 
     monkeypatch.setattr(loaders, 'get_parameter', get_parameter)
     df = common.get_base_energy_density("PhysicalDerivedCarriersEnergyDensity")
     ms = df.query("EnergyCarrier == 'MS'")
-    ms_edensity =  loaders.get_parameter("PhysicalDerivedCarriers").query("EnergyCarrier == 'MS'").loc[0,['EnergyDensity']].values[0]
+    ms_edensity = loaders.get_parameter("PhysicalDerivedCarriers").query(
+        "EnergyCarrier == 'MS'").loc[0, ['DomEnergyDensity']].values[0]
     assert len(ms) == 5
-    assert ms.equals(pd.DataFrame({"EnergyCarrier":['MS']*5,
-                                   "EnergyDensity": [ms_edensity]*5,
-                                   "Year": utilities.get_years()}))
+    df1 = pd.DataFrame({"EnergyCarrier": ['MS']*5,
+                       "ImpEnergyDensity": [ms_edensity]*5,
+                        "DomEnergyDensity": [ms_edensity]*5,
+                        "Year": utilities.get_years()})
+    assert ms.equals(df1)
     assert len(df) == len(loaders.get_parameter("PhysicalDerivedCarriers"))*5
 
 
 def test_expand_energy_density(monkeypatch):
     def get_parameter(name, *kwargs):
         if name == "ModelPeriod":
-            return pd.DataFrame({"StartYear":[2021],
-                                 "EndYear":[2025]})
+            return pd.DataFrame({"StartYear": [2021],
+                                 "EndYear": [2025]})
         elif name == "PhysicalPrimaryCarriers":
             return utilities.make_dataframe("""EnergyCarrier,BalancingArea,BalancingTime,PhysicalUnit,EnergyUnit,DomEnergyDensity,ImpEnergyDensity
 COKING_COAL,SUBGEOGRAPHY1,YEAR,MT,PJ,20.9792705,28.0285326
@@ -138,11 +142,11 @@ COKING_COAL,2023,21.0,30.0"""))
 def test_expand_carrier_emissions(monkeypatch):
     def get_parameter(name, *kwargs):
         if name == "ModelPeriod":
-            return pd.DataFrame({"StartYear":[2021],
-                                 "EndYear":[2025]})
+            return pd.DataFrame({"StartYear": [2021],
+                                 "EndYear": [2025]})
 
     monkeypatch.setattr(loaders, "get_parameter", get_parameter)
-        
+
     PrimaryCarrierEmissions = utilities.make_dataframe("""EnergyCarrier,EmissionType,Year,DomEmissionFactor,ImpEmissionFactor
 COKING_COAL,CO,2021,21.0,30.0
 COKING_COAL,CO2,2021,20.9792705,28.0285326
@@ -171,8 +175,8 @@ COKING_COAL,CO2,2023,21.0,30.0""")
 def test_first_year_present(monkeypatch):
     def get_parameter(name, *kwargs):
         if name == "ModelPeriod":
-            return pd.DataFrame({"StartYear":[2021],
-                                 "EndYear":[2025]})
+            return pd.DataFrame({"StartYear": [2021],
+                                 "EndYear": [2025]})
 
     monkeypatch.setattr(loaders, "get_parameter", get_parameter)
     PrimaryCarrierEmissions = utilities.make_dataframe("""EnergyCarrier,EmissionType,Year,DomEmissionFactor,ImpEmissionFactor

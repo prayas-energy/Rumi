@@ -44,7 +44,7 @@ EndUseDemandEnergy:
     EndUseDemandEnergy:
       type: float
       min: 0
-  dependencies:
+  dependencies: # names of parameters either from common or from this file
     - ModelPeriod
     - PhysicalPrimaryCarriers
     - PhysicalDerivedCarriers
@@ -59,7 +59,11 @@ EndUseDemandEnergy:
       message: Geographic columns have error in EndUseDemandEnergy
     - code: check_enduse("Time validity", utilities.check_time_validity, EndUseDemandEnergy, 'EndUseDemandEnergy', ['EnergyCarrier'], True, True)
       message: Time columns have error in EndUseDemandEnergy
-    
+    - code: check_balancing_area('EndUseDemandEnergy', EndUseDemandEnergy, 'EnergyCarrier', False)
+      message: Geographic granularity for one or more EnergyCarrier in EndUseDemandEnergy is finer than the balancing area
+    - code: check_balancing_time('EndUseDemandEnergy', EndUseDemandEnergy, 'EnergyCarrier', False)
+      message: Time granularity for one or more EnergyCarrier in EndUseDemandEnergy is finer than the balancing time
+
       
 EC_InfoGranularity:
   filetype: csv
@@ -80,9 +84,9 @@ EC_InfoGranularity:
     - code: x_in_y(EnergyCarrier, concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
       message: EnergyCarrier in EC_InfoGranularity must be one of those specified in PhysicalPrimaryCarriers or PhysicalDerivedCarriers or NonPhysicalDerivedCarriers
     - code: x_in_y(TimeGranularity, utilities.get_valid_time_levels())
-      message: In EC_InfoGranularity Time granularity can be only from defined time levels in Common
+      message: In EC_InfoGranularity, Time granularity has to be one of these strings YEAR, SEASON, DAYTYPE, DAYSLICE
     - code: x_in_y(GeographicGranularity, utilities.get_valid_geographic_levels())
-      message: In EC_InfoGranularity Geographic granularity can be only from defined geographic levels in Common
+      message: In EC_InfoGranularity,Geographic granularity has to be one of these strings MODELGEOGRAPHY,SUBGEOGRAPHY1, SUBGEOGRAPHY2, SUBGEOGRAPHY3
     - code: check_balancing_area_gran('EC_InfoGranularity', EC_InfoGranularity, 'EnergyCarrier','coarser')
       message: Geographic granularity for one or more EnergyCarrier specified in EC_InfoGranularity is incorrect. Check log for more details      
     - code: check_balancing_time_gran('EC_InfoGranularity', EC_InfoGranularity, 'EnergyCarrier','coarser')
@@ -101,21 +105,17 @@ EC_ConstraintsGranularity:
       type: str
   dependencies:
     - PhysicalPrimaryCarriers
+    - PhysicalDerivedCarriers
+    - NonPhysicalDerivedCarriers
   validation:
     - code: unique(EnergyCarrier)
       message: In EC_ConstraintsGranularity, EnergyCarrier must not be repeated
-    - code: x_in_y(EnergyCarrier, get_col(PhysicalPrimaryCarriers,'EnergyCarrier'))
-      message: EnergyCarrier in EC_ConstraintsGranularity must be one of those specified in PhysicalPrimaryCarriers
+    - code: x_in_y(EnergyCarrier, concat(get_col(PhysicalPrimaryCarriers,'EnergyCarrier'), get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
+      message: EnergyCarrier in EC_ConstraintsGranularity must be one of those specified in PhysicalPrimaryCarriers, PhysicalDerivedCarriers or NonPhysicalDerivedCarriers
     - code: x_in_y(TimeGranularity, utilities.get_valid_time_levels())
-      message: In EC_ConstraintsGranularity, Time granularity can be only from defined time levels in Common
+      message: In EC_ConstraintsGranularity, Time granularity has to be one of these strings YEAR, SEASON, DAYTYPE, DAYSLICE
     - code: x_in_y(GeographicGranularity, utilities.get_valid_geographic_levels())
-      message: In EC_ConstraintsGranularity, Geographic granularity can be only from defined geographic levels in Common
-    - code: check_balancing_area_gran('EC_ConstraintsGranularity',EC_ConstraintsGranularity, 'EnergyCarrier','finer')
-      message: Geographic granularity for one or more EnergyCarrier specified in EC_ConstraintsGranularity is incorrect. Check log for more details      
-    - code: check_balancing_time_gran('EC_ConstraintsGranularity',EC_ConstraintsGranularity, 'EnergyCarrier','finer')
-      message: Time granularity for one or more EnergyCarrier specified in EC_ConstraintsGranularity is incorrect. Check log for more details
-# if Physicalprimarycarriers are presents then this parameter has to be given and vice versa.
-
+      message: In EC_ConstraintsGranularity, Geographic granularity has to be one of these strings MODELGEOGRAPHY,SUBGEOGRAPHY1, SUBGEOGRAPHY2, SUBGEOGRAPHY3
     
 
 ECT_InfoGranularity:
@@ -136,9 +136,9 @@ ECT_InfoGranularity:
     - code: x_in_y(EnergyConvTech, get_col(EnergyConvTechnologies,'EnergyConvTech'))
       message: EnergyConvTech in ECT_InfoGranularity must be one of those specified in EnergyConvTechnologies
     - code: x_in_y(TimeGranularity, utilities.get_valid_time_levels())
-      message: In EC_InfoGranularity, Time granularity can be only from defined time levels in Common
+      message: In EC_InfoGranularity, Time granularity has to be one of these strings YEAR, SEASON, DAYTYPE, DAYSLICE
     - code: x_in_y(GeographicGranularity, utilities.get_valid_geographic_levels())
-      message: In EC_InfoGranularity, Geographic granularity can be only from defined geographic levels in Common
+      message: In EC_InfoGranularity, Geographic granularity has to be one of these strings MODELGEOGRAPHY,SUBGEOGRAPHY1, SUBGEOGRAPHY2, SUBGEOGRAPHY3
     - code: check_balancing_area_gran('ECT_InfoGranularity', ECT_InfoGranularity, 'EnergyConvTech','coarser')
       message: Geographic granularity for one or more EnergyConvTech specified in ECT_InfoGranularity is incorrect. Check log for more details      
     - code: check_balancing_time_gran('ECT_InfoGranularity', ECT_InfoGranularity, 'EnergyConvTech','coarser')
@@ -164,9 +164,9 @@ ECT_InputsGranularity:
     - code: x_in_y(EnergyConvTech, get_col(EnergyConvTechnologies,'EnergyConvTech'))
       message: EnergyConvTech in ECT_InputsGranularity must be one of those specified in EnergyConvTechnologies
     - code: x_in_y(TimeGranularity, utilities.get_valid_time_levels())
-      message: In ECT_InputsGranularity, Time granularity can be only from defined time levels in Common
+      message: In ECT_InputsGranularity, Time granularity has to be one of these strings YEAR, SEASON, DAYTYPE, DAYSLICE
     - code: x_in_y(GeographicGranularity, utilities.get_valid_geographic_levels())
-      message: In ECT_InputsGranularity, Geographic granularity can be only from defined geographic levels in Common
+      message: In ECT_InputsGranularity, Geographic granularity has to be one of these strings MODELGEOGRAPHY,SUBGEOGRAPHY1, SUBGEOGRAPHY2, SUBGEOGRAPHY3
     - code: check_balancing_area_gran('ECT_InputsGranularity', ECT_InputsGranularity, 'EnergyConvTech','finer')
       message: Geographic granularity for one or more EnergyConvTech specified in ECT_InputsGranularity is incorrect. Check log for more details      
     # check for balancing time is not put because, it is irrelevant here and will also fail if we put it.
@@ -191,9 +191,9 @@ EST_InfoGranularity:
     - code: x_in_y(EnergyStorTech, get_col(EnergyStorTechnologies,'EnergyStorTech'))
       message: EnergyStorTech in EST_InfoGranularity must be one of those specified in EnergyStorTechnologies
     - code: x_in_y(TimeGranularity, utilities.get_valid_time_levels())
-      message: In EST_InfoGranularity, Time granularity can be only from defined time levels in Common
+      message: In EST_InfoGranularity, Time granularity has to be one of these strings YEAR, SEASON, DAYTYPE, DAYSLICE
     - code: x_in_y(GeographicGranularity, utilities.get_valid_geographic_levels())
-      message: In EST_InfoGranularity, Geographic granularity can be only from defined geographic levels in Common
+      message: In EST_InfoGranularity, Geographic granularity has to be one of these strings MODELGEOGRAPHY,SUBGEOGRAPHY1, SUBGEOGRAPHY2, SUBGEOGRAPHY3
     - code: check_balancing_area_gran('EST_InfoGranularity', EST_InfoGranularity, 'EnergyStorTech','coarser')
       message: Geographic granularity for one or more EnergyStorTech specified in EST_InfoGranularity is incorrect. Check log for more details      
     - code: check_balancing_time_gran('EST_InfoGranularity', EST_InfoGranularity, 'EnergyStorTech','coarser')
@@ -219,9 +219,9 @@ EST_InputsGranularity:
     - code: x_in_y(EnergyStorTech, get_col(EnergyStorTechnologies,'EnergyStorTech'))
       message: EnergyStorTech in EST_InputsGranularity must be one of those specified in EnergyStorTechnologies
     - code: x_in_y(TimeGranularity, utilities.get_valid_time_levels())
-      message: In EST_InputsGranularity, Time granularity can be only from defined time levels in Common
+      message: In EST_InputsGranularity, Time granularity has to be one of these strings YEAR, SEASON, DAYTYPE, DAYSLICE
     - code: x_in_y(GeographicGranularity, utilities.get_valid_geographic_levels())
-      message: In EST_InputsGranularity, Geographic granularity can be only from defined geographic levels in Common
+      message: In EST_InputsGranularity, Geographic granularity has to be one of these strings MODELGEOGRAPHY,SUBGEOGRAPHY1, SUBGEOGRAPHY2, SUBGEOGRAPHY3
     - code: check_balancing_area_gran('EST_InputsGranularity', EST_InputsGranularity, 'EnergyStorTech','finer')
       message: Geographic granularity for one or more EnergyStorTech specified in EST_InputsGranularity is incorrect. Check log for more details      
     # check for balancing time is not put because, it is irrelevant here and will also fail if we put it.
@@ -310,48 +310,36 @@ PEC_Info:
 # if physicalprimarycarriers is given then this parameter has to be given and vice versa
 
     
-    
 PEC_ProdImpConstraints:
   filetype: csv
   loader: rumi.io.supply.load_param
   nested: Carriers
-  time: fine
-  geographic: fine
   optional: True
   # because of this check in Common, PPEC or NPPEC and DEC, this parameter can be optional
   # but will have issue if PPEC is defined and at least one PPEC is used in supply.
+  entities:
+    - EnergyCarrier
+  preapply: rumi.io.utilities.expand_ALL
+  granularity_exception: True 
   columns:
     EnergyCarrier:
-      type: str
     ModelGeography:
-      type: str
     SubGeography1:
-      type: str
       optional: True
     SubGeography2:
-      type: str
       optional: True
     SubGeography3:
-      type: str
       optional: True
     Year:
-      type: int
-      min: 2000
-      max: 2100
     Season:
-      type: str
       optional: True
     DayType:
-      type: str
       optional: True
     DaySlice:
-      type: str
       optional: True
     MaxDomesticProd:
-      type: float
       min: 0
     MaxImport:
-      type: float
       min: 0
   dependencies:
     - ModelPeriod
@@ -367,17 +355,64 @@ PEC_ProdImpConstraints:
       message: In PEC_ProdImpConstraints, every entry in EnergyCarrier column should be from EC_ConstraintsGranularity    
     - code: check_granularity(PEC_ProdImpConstraints, EC_ConstraintsGranularity, 'EnergyCarrier', GSTAR=True, TSTAR=True)
       message: One or more granularities specified in PEC_ProdImpConstraints are incorrect.
-    - code: utilities.check_geographic_validity(PEC_ProdImpConstraints, 'PEC_ProdImpConstraints', ['EnergyCarrier'])
-      message: Geographic columns have error in PEC_ProdImpConstraints
-    - code: utilities.check_time_validity(PEC_ProdImpConstraints, 'PEC_ProdImpConstraints', ['EnergyCarrier'])
-      message: Time columns have error in PEC_ProdImpConstraints
+    - code: utilities.check_CGT_validity(PEC_ProdImpConstraints, 'PEC_ProdImpConstraints', ['EnergyCarrier'], "CGT")
+      message: Geographic and Time columns have error in PEC_ProdImpConstraints
     - code: utilities.unique_across(PEC_ProdImpConstraints,['EnergyCarrier'])
       message: In PEC_ProdImpConstraints, data for one or more EnergyCarrier has duplicate entries
 # if physicalprimarycarriers is given then this parameter has to be given and vice versa
 
 
+DEC_ImpConstraints:
+  filetype: csv
+  loader: rumi.io.supply.load_param
+  nested: Carriers
+  optional: True
+  # because of this check in Common, PPEC or NPPEC and DEC, this parameter can be optional
+  # but will have issue if PPEC is defined and at least one PPEC is used in supply.
+  entities:
+    - EnergyCarrier
+  preapply: rumi.io.utilities.expand_ALL
+  granularity_exception: True
+  columns:
+    EnergyCarrier:
+    ModelGeography:
+    SubGeography1:
+      optional: True
+    SubGeography2:
+      optional: True
+    SubGeography3:
+      optional: True
+    Year:
+    Season:
+      optional: True
+    DayType:
+      optional: True
+    DaySlice:
+      optional: True
+    MaxImport:
+      min: 0
+  dependencies:
+    - ModelPeriod
+    - EC_ConstraintsGranularity
+    - PhysicalDerivedCarriers
+    - NonPhysicalDerivedCarriers
+  filterqueries:
+    - Year >= {ModelPeriod.StartYear.iloc[0]}
+    - Year <= {ModelPeriod.EndYear.iloc[0]}
+  validation:
+    - code: x_in_y(x=EnergyCarrier,y=concat(get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
+      message: In DEC_ImpConstraints, every entry in EnergyCarrier column should be from PhysicalDerivedCarriers, NonPhysicalDerivedCarriers
+    - code: x_in_y(x=EnergyCarrier,y=get_col(EC_ConstraintsGranularity,'EnergyCarrier'))
+      message: In DEC_ImpConstraints, every entry in EnergyCarrier column should be from EC_ConstraintsGranularity    
+    - code: check_granularity(DEC_ImpConstraints, EC_ConstraintsGranularity, 'EnergyCarrier', GSTAR=True, TSTAR=True)
+      message: One or more granularities specified in DEC_ImpConstraints are incorrect.
+    - code: utilities.check_CGT_validity(DEC_ImpConstraints, 'DEC_ImpConstraints', ['EnergyCarrier'], "CGT")
+      message: Geographic and Time columns have error in DEC_ImpConstraints
+    - code: utilities.unique_across(DEC_ImpConstraints,['EnergyCarrier'])
+      message: In DEC_ImpConstraints, data for one or more EnergyCarrier has duplicate entries
 
-DEC_Taxation:
+
+DEC_Info:
   filetype: csv
   loader: rumi.io.supply.load_param
   nested: Carriers
@@ -413,9 +448,19 @@ DEC_Taxation:
     DaySlice:
       type: str
       optional: True
-    FixedTaxOH:
+    FixedTaxOHDom:
       type: float
       min: 0
+    ImportPrice:
+      type: float
+      min: 0
+    AVTaxOHImp:
+      type: float
+      min: 0
+    FixedTaxOHImp:
+      type: float
+      min: 0
+
   dependencies:
     - ModelPeriod
     - EC_InfoGranularity
@@ -426,22 +471,21 @@ DEC_Taxation:
     - Year <= {ModelPeriod.EndYear.iloc[0]}
   validation:
     - code: x_in_y(x=EnergyCarrier,y=concat(get_col(PhysicalDerivedCarriers,'EnergyCarrier'), get_col(NonPhysicalDerivedCarriers,'EnergyCarrier')))
-      message: In DEC_Taxation, every entry in EnergyCarrier column should be from Derived Carriers
+      message: In DEC_Info, every entry in EnergyCarrier column should be from Derived Carriers
     - code: x_in_y(x=EnergyCarrier,y=get_col(EC_InfoGranularity,'EnergyCarrier'))
-      message: In DEC_Taxation, every entry in EnergyCarrier column should be from EC_InfoGranularity
-    - code: check_granularity(DEC_Taxation, EC_InfoGranularity, 'EnergyCarrier',GSTAR=True, TSTAR=True)
-      message: One or more granularities specified in DEC_Taxation are incorrect.
-    - code: utilities.check_geographic_validity(DEC_Taxation, 'DEC_Taxation', ['EnergyCarrier'])
-      message: Geographic columns have error in DEC_Taxation
-    - code: utilities.check_time_validity(DEC_Taxation, 'DEC_Taxation', ['EnergyCarrier'])
-      message: Time columns have error in DEC_Taxation
-    - code: utilities.unique_across(DEC_Taxation,['EnergyCarrier'])
-      message: In DEC_Taxation, data for one or more EnergyCarrier has duplicate entries
+      message: In DEC_Info, every entry in EnergyCarrier column should be from EC_InfoGranularity
+    - code: check_granularity(DEC_Info, EC_InfoGranularity, 'EnergyCarrier',GSTAR=True, TSTAR=True)
+      message: One or more granularities specified in DEC_Info are incorrect.
+    - code: utilities.check_geographic_validity(DEC_Info, 'DEC_Info', ['EnergyCarrier'])
+      message: Geographic columns have error in DEC_Info
+    - code: utilities.check_time_validity(DEC_Info, 'DEC_Info', ['EnergyCarrier'])
+      message: Time columns have error in DEC_Info
+    - code: utilities.unique_across(DEC_Info,['EnergyCarrier'])
+      message: In DEC_Info, data for one or more EnergyCarrier has duplicate entries
 # if any of PhysicalDerivedCarriers or NonPhysicalDerivedCarriers is present this has to be given.
 # if non of them is present this should not be given
 
     
-
 EnergyConvTechnologies:
   filetype: csv
   loader: rumi.io.supply.load_param
@@ -520,15 +564,15 @@ ECT_CapAddBounds:
     - code: x_in_y(x=EnergyConvTech,y=get_col(ECT_InputsGranularity,'EnergyConvTech'))
       message: In ECT_CapAddBounds, every entry in EnergyConvTech columns should be mentioned in EnergyConvTech column of ECT_InputsGranularity
     - code: check_granularity(ECT_CapAddBounds, ECT_InputsGranularity, 'EnergyConvTech', GSTAR=True)
-      message: One or more granularities specified in ECT_CapAddBounds are incorrect.
+      message: One or more granularities specified in ECT_CapAddBounds are incorrect
     - code: utilities.check_geographic_validity(ECT_CapAddBounds, 'ECT_CapAddBounds', ['EnergyConvTech'])
       message: Geographic columns have error in ECT_CapAddBounds
     - code: utilities.check_time_validity(ECT_CapAddBounds, 'ECT_CapAddBounds', ['EnergyConvTech'])
       message: Time columns have error in ECT_CapAddBounds
     - code: utilities.unique_across(ECT_CapAddBounds,['EnergyConvTech'])
       message: In ECT_CapAddBounds, data for one or more EnergyConvTech has duplicate entries
-    - code: (MaxCapacity >= MinCapacity).sum()== len(MaxCapacity)
-      message: In ECT_CapAddBounds  MaxCapacity should be greater than or equal to MinCapacity
+    - code: (MaxCapacity >= MinCapacity).sum()== (MaxCapacity>=0).sum()# this is to take care of -ve maxcap but +ve mincap
+      message: In each row of ECT_CapAddBounds MaxCapacity should be greater than or equal to MinCapacity
 # if EnergyConvtechnologies is given this has to be given and vice versa.
       
 ECT_Lifetime:
@@ -599,10 +643,9 @@ ECT_OperationalInfo:
   validation:
     - code: x_in_y(x=EnergyConvTech,y=get_col(EnergyConvTechnologies,'EnergyConvTech'))
       message: In ECT_OperationalInfo, every entry in EnergyConvTech columns should be mentioned in EnergyConvTech column of EnergyConvTechnologies
-    - code: x_in_y(InstYear, range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1))
-      message: InstYear in ECT_OperationalInfo must be between 'one year less than ModelPeriod StartYear to ModelPeriod EndYear'
     - code: unique(list(zip(EnergyConvTech,InstYear)))
       message: In ECT_OperationalInfo, combination of EnergyConvTech and InstYear must not be repeated
+
 # if EnergyConvtechnologies is given this has to be given and vice versa.
 
 
@@ -637,7 +680,7 @@ ECT_EmissionDetails:
     - code: x_in_y(x=EnergyConvTech,y=get_col(EnergyConvTechnologies,'EnergyConvTech'))
       message: In ECT_EmissionDetails, every entry in EnergyConvTech columns should be mentioned in EnergyConvTech column of EnergyConvTechnologies
     - code: all([one_to_one(ECT_EmissionDetails.query(f"EnergyConvTech=='{ECT}'")['InstYear'], range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1)) for ECT in EnergyConvTech.unique()])
-      message: Data in ECT_EmissionDetails must be  provided for each year from ModelPeriod.StartYear-1 to ModelPeriod.EndYear
+      message: Data in ECT_EmissionDetails must be provided for each year from ModelPeriod.StartYear-1 to ModelPeriod.EndYear
     - code: x_in_y(EmissionType, EmissionTypes.EmissionType)
       message: EmissionType in ECT_EmissionDetails must be from EmissionType defined in EmissionTypes in Common
     - code: utilities.unique_across(ECT_EmissionDetails,['EnergyConvTech','InstYear','EmissionType'])
@@ -707,52 +750,40 @@ ECT_EfficiencyCostMaxAnnualUF:
       message: Geographic columns have error in ECT_EfficiencyCostMaxAnnualUF
     - code: utilities.check_time_validity(ECT_EfficiencyCostMaxAnnualUF, 'ECT_EfficiencyCostMaxAnnualUF', ['EnergyConvTech','InstYear'])
       message: Time columns have error in ECT_EfficiencyCostMaxAnnualUF
-    - code: x_in_y(InstYear, range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1))
-      message: InstYear in ECT_EfficiencyCostMaxAnnualUF must be between 'one year less than ModelPeriod StartYear to ModelPeriod EndYear'
     - code: utilities.unique_across(ECT_EfficiencyCostMaxAnnualUF,['EnergyConvTech','InstYear'])
       message: In ECT_EfficiencyCostMaxAnnualUF, combination of EnergyConvTech,InstYear must not be repeated
+    - code: (Year >= InstYear).all()
+      message: In each row for ECT_EfficiencyCostMaxAnnualUF, InstYear should be less than or equal to Year
 # if EnergyConvtechnologies is given this has to be given and vice versa.    
 
 ECT_Max_CUF:
   filetype: csv
   loader: rumi.io.supply.load_param
   nested: Technologies
+  entities:
+    - EnergyConvTech
+  preapply: rumi.io.utilities.expand_ALL
   time: coarse
   geographic: coarse
   optional: True
   columns:
     EnergyConvTech:
-      type: str
     InstYear:
-      type: int
-      min: 2000
-      max: 2100
     ModelGeography:
-      type: str
     SubGeography1:
-      type: str
       optional: True
     SubGeography2:
-      type: str
       optional: True
     SubGeography3:
-      type: str
       optional: True
     Year:
-      type: int
-      min: 2000
-      max: 2100
     Season:
-      type: str
       optional: True
     DayType:
-      type: str
       optional: True
     DaySlice:
-      type: str
       optional: True
     MaxUF:
-      type: float
       min: 0
       max: 1
   dependencies:
@@ -771,17 +802,16 @@ ECT_Max_CUF:
       message: In ECT_Max_CUF, every entry in EnergyConvTech columns should be mentioned in EnergyConvTech column of ECT_InfoGranularity    
     - code: check_granularity(ECT_Max_CUF, ECT_InfoGranularity, 'EnergyConvTech', GSTAR=True, TSTAR=True)
       message: One or more granularities specified in ECT_Max_CUF are incorrect.
-    - code: utilities.check_geographic_validity(ECT_Max_CUF, 'ECT_Max_CUF', ['EnergyConvTech','InstYear'])
-      message: Geographic columns have error in ECT_Max_CUF
-    - code: utilities.check_time_validity(ECT_Max_CUF, 'ECT_Max_CUF', ['EnergyConvTech','InstYear'])
-      message: Time columns have error in ECT_Max_CUF
-    - code: x_in_y(InstYear, range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1))
-      message: InstYear in ECT_Max_CUF must be between 'one year less than ModelPeriod StartYear to ModelPeriod EndYear'
+    - code: utilities.check_CGT_validity(ECT_Max_CUF, 'ECT_Max_CUF', ['EnergyConvTech','InstYear'], "CGT")
+      message: Geographic and Time columns have error in ECT_Max_CUF
     - code: utilities.unique_across(ECT_Max_CUF,['EnergyConvTech','InstYear'])
       message: In ECT_Max_CUF, combination of EnergyConvTech,InstYear must not be repeated
+    - code: (Year >= InstYear).all()
+      message: In each row for ECT_Max_CUF, InstYear should be less than or equal to Year
+
 # if EnergyConvtechnologies is given this has to be given and vice versa.
 
-      
+
 ECT_LegacyCapacity:
   filetype: csv
   loader: rumi.io.supply.load_param
@@ -875,7 +905,6 @@ ECT_LegacyRetirement:
     - code: check_retirement_capacity(ECT_LegacyRetirement, ECT_LegacyCapacity)
       message: In ECT_LegacyRetirement, sum of retired capacity can not exceed original capacity specified in ECT_LegacyCapacity
 # if there not ECT_LegacyCapacity then this can not be present.
-
     
   
 EnergyStorTechnologies:
@@ -912,10 +941,9 @@ EnergyStorTechnologies:
     - code: x_in_y(StorPeriodicity, get_valid_stor_periodicity())
       message: StorPeriodicity in EnergyStorTechnologies must have values one of DAILY (only if DayTypes parameter is defined), SEASONAL (only if Seasons parameter is defined), ANNUAL, NEVER
     - code: check_periodicity_coarseness(EnergyStorTechnologies)
-      message: StorPeriodicity in EnergyStorTechnologies must be coarser than balancing area of StoredEC
+      message: StorPeriodicity in EnergyStorTechnologies must be coarser than balancing time of StoredEC
     - code: check_stortech_daytypes(EnergyStorTechnologies)
       message: Number of DAYTYPES specified in common are inconsistent with StorPeriodicity specified in EnergyStorTech
-
 
     
 EST_Lifetime:
@@ -1002,8 +1030,8 @@ EST_CapAddBounds:
       message: Time columns have error in EST_CapAddBounds
     - code: utilities.unique_across(EST_CapAddBounds,['EnergyStorTech'])
       message: In EST_CapAddBounds, data for one or more EnergyStorTech has duplicate entries
-    - code: (MaxCap >= MinCap).sum()== len(MaxCap)
-      message: In EST_CapAddBounds  MaxCap should be greater than or equal to MinCap
+    - code: (MaxCap >= MinCap).sum()== (MaxCap>=0).sum() # this is to take care of -ve maxcap but +ve mincap
+      message: In each row for EST_CapAddBounds MaxCap should be greater than or equal to MinCap
 
 # if EnergyStortechnologies is given then this should be given and vice versa.
 
@@ -1036,8 +1064,6 @@ EST_DeratingDepthOfDischarge:
   validation:
     - code: x_in_y(x=EST_DeratingDepthOfDischarge.EnergyStorTech,y=get_col(EnergyStorTechnologies,'EnergyStorTech'))
       message: In EST_DeratingDepthOfDischarge, every entry in EnergyStorTech columns should be mentioned in EnergyStorTech column of EnergyStorTechnologies    
-    - code: x_in_y(InstYear, range(ModelPeriod.StartYear.iloc[0]-1,ModelPeriod.EndYear.iloc[0]+1))
-      message: InstYear in EST_DeratingDepthOfDischarge must be between 'one year less than ModelPeriod StartYear to ModelPeriod EndYear'
     - code: utilities.unique_across(EST_DeratingDepthOfDischarge,['EnergyStorTech','InstYear'])
       message: In EST_DeratingDepthOfDischarge, EnergyStorTech and InstYear combination must not be repeated
 # if EnergyStortechnologies is given then this should be given and vice versa.
@@ -1101,6 +1127,9 @@ EST_EfficiencyCost:
       message: InstYear in EST_EfficiencyCost must be between 'one year less than ModelPeriod StartYear to ModelPeriod EndYear'
     - code: utilities.unique_across(EST_EfficiencyCost,['EnergyStorTech','InstYear'])
       message: In EST_EfficiencyCost, EnergyStorTech and InstYear combination must not be repeated
+    - code: (Year >= InstYear).all()
+      message: In each row for ECT_EfficiencyCost, InstYear should be less than or equal to Year
+
 # if EnergyStortechnologies is given then this should be given and vice versa.
       
 EST_LegacyDetails:
@@ -1141,7 +1170,6 @@ EST_LegacyDetails:
       message: Geographic columns have error in EST_LegacyDetails
     - code: check_balancing_area('EST_LegacyDetails',EST_LegacyDetails, 'EnergyStorTech')
       message: One or more EnergyStorTech in EST_LegacyDetails is not specified at geographic granularity equal to balancing area of StoredEC
-
     - code: utilities.unique_across(EST_LegacyDetails,['EnergyStorTech'])
       message: In EST_LegacyDetails, data for one or more EnergyStorTech has duplicate entries
 #if EnergyStortechnologies is not given then should not be given
@@ -1235,7 +1263,7 @@ UserConstraints:
       message: Lower bound should be less than or equal to upper bound in every BOUNDS line of UserConstraints
 
     - code: constraints_loop("len(c['VECTORS'])>=1", UserConstraints)
-      message: In UserConstraints, every constraint should have at least one line that is not a BOUNDS line
+      message: In UserConstraints, every constraint should have at least one non COMMENT line that is not a BOUNDS line
 
     - code: vectors_loop("len(v)>=2", UserConstraints, model)
       message: In UserConstraints, any line that is not a BOUNDS line must have at least two items
@@ -1269,36 +1297,72 @@ global_validation:
   validation:
     - code: validate_units_config('EnergyUnitConversion')
       message: EnergyUnitConversion is incorrect
-    - code: (isinstance(EC_ConstraintsGranularity,pd.DataFrame)  and  isinstance(PhysicalPrimaryCarriers, pd.DataFrame)) or (not isinstance(EC_ConstraintsGranularity,pd.DataFrame)  and  not isinstance(PhysicalPrimaryCarriers, pd.DataFrame))
-      message: If EC_ConstraintsGranularity is given then PhysicalPrimaryCarriers must be given and vice versa
-    - code: (isinstance(ECT_InfoGranularity,pd.DataFrame)  and  isinstance(EnergyConvTechnologies, pd.DataFrame)) or (not isinstance(ECT_InfoGranularity,pd.DataFrame)  and  not isinstance(EnergyConvTechnologies, pd.DataFrame))
-      message: If ECT_InfoGranularity is given then EnergyConvTechnologies must be given and vice versa
+      
+    - code: ((EC_ConstraintsGranularity is not None) and PPEC) or (EC_Constraintsgranularity is not None and not PPEC) or (EC_ConstraintsGranularity is None and not PPEC)
+      message: If PhysicalPrimaryCarriers is given then EC_ConstraintsGranularity has to be given 
+      
+    - code: (ECT_InfoGranularity is not None) and (EnergyConvTechnologies is not None) or ((ECT_InfoGranularity is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_InfoGranularity must be given and vice versa
+      
+    - code: (ECT_InputsGranularity is not None) and (EnergyConvTechnologies is not None) or ((ECT_InputsGranularity is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_InputsGranularity must be given and vice versa
 
-    - code: not(isinstance(ECT_LegacyCapacity,pd.DataFrame)  and  not isinstance(EnergyConvTechnologies, pd.DataFrame))
+    - code: (ECT_CapAddBounds is not None) and (EnergyConvTechnologies is not None) or ((ECT_CapAddBounds is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_CapAddBounds must be given and vice versa
+
+    - code: (ECT_Lifetime is not None) and (EnergyConvTechnologies is not None) or ((ECT_Lifetime is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_Lifetime must be given and vice versa
+
+    - code: (ECT_OperationalInfo is not None) and (EnergyConvTechnologies is not None) or ((ECT_OperationalInfo is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_OperationalInfo must be given and vice versa
+
+    - code: ECT_EmissionDetails is None or EnergyConvTechnologies is not None
+      message: If EnergyConvTechnologies is not given ECT_EmissionDetails should not be given
+
+    - code: (ECT_EfficiencyCostMaxAnnualUF is not None) and (EnergyConvTechnologies is not None) or ((ECT_EfficiencyCostMaxAnnualUF is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_EfficiencyCostMaxAnnualUF must be given and vice versa
+
+    - code: (ECT_Max_CUF is not None) and (EnergyConvTechnologies is not None) or ((ECT_Max_CUF is None) and (EnergyConvTechnologies is None))
+      message: If EnergyConvTechnologies is given then ECT_Max_CUF must be given and vice versa
+      
+    - code: ECT_LegacyCapacity is None or EnergyConvTechnologies is not None
       message: If EnergyConvTechnologies is not given ECT_LegacyCapacity should not be given
 
-    - code: not(isinstance(ECT_LegacyRetirement,pd.DataFrame)  and  not isinstance(ECT_LegacyCapacity, pd.DataFrame))
+    - code: ECT_LegacyRetirement is None or ECT_LegacyCapacity is not None
       message: If ECT_LegacyCapacity is not given ECT_LegacyRetirement should not be given
 
-    - code: (isinstance(EST_Lifetime,pd.DataFrame)  and  isinstance(EnergyStorTechnologies, pd.DataFrame)) or (not isinstance(EST_Lifetime,pd.DataFrame)  and  not isinstance(EnergyStorTechnologies, pd.DataFrame))
+    - code: (EST_InfoGranularity is not None) and (EnergyStorTechnologies is not None) or ((EST_InfoGranularity is None) and (EnergyStorTechnologies is None))
+      message: If EnergyStorTechnologies is given then EST_InfoGranularity must be given and vice versa
+
+    - code: (EST_InputsGranularity is not None) and (EnergyStorTechnologies is not None) or ((EST_InputsGranularity is None) and (EnergyStorTechnologies is None))
+      message: If EnergyStorTechnologies is given then EST_InputsGranularity must be given and vice versa
+      
+    - code: (EST_Lifetime is not None and EnergyStorTechnologies is not None) or (EST_Lifetime is None and EnergyStorTechnologies is None)
       message: If EST_Lifetime is given then EnergyStorTechnologies must be given and vice versa
 
-    - code: (isinstance(EST_CapAddBounds,pd.DataFrame)  and  isinstance(EnergyStorTechnologies, pd.DataFrame)) or (not isinstance(EST_CapAddBounds,pd.DataFrame)  and  not isinstance(EnergyStorTechnologies, pd.DataFrame))
+    - code: (EST_CapAddBounds is not None and EnergyStorTechnologies is not None) or (EST_CapAddBounds is None  and  EnergyStorTechnologies is None)
       message: If EST_CapAddBounds is given then EnergyStorTechnologies must be given and vice versa
 
-    - code: (isinstance(EST_DeratingDepthOfDischarge,pd.DataFrame)  and  isinstance(EnergyStorTechnologies, pd.DataFrame)) or (not isinstance(EST_DeratingDepthOfDischarge,pd.DataFrame)  and  not isinstance(EnergyStorTechnologies, pd.DataFrame))
+    - code: (EST_DeratingDepthOfDischarge is not None and EnergyStorTechnologies is not None) or (EST_DeratingDepthOfDischarge is None  and  EnergyStorTechnologies is None)
       message: If EST_DeratingDepthOfDischarge is given then EnergyStorTechnologies must be given and vice versa
 
-    - code: (isinstance(EST_EfficiencyCost,pd.DataFrame)  and  isinstance(EnergyStorTechnologies, pd.DataFrame)) or (not isinstance(EST_EfficiencyCost,pd.DataFrame)  and  not isinstance(EnergyStorTechnologies, pd.DataFrame))
+    - code: (EST_EfficiencyCost is not None and EnergyStorTechnologies is not None) or (EST_EfficiencyCost is None and EnergyStorTechnologies is None)
       message: If EST_EfficiencyCost is given then EnergyStorTechnologies must be given and vice versa
 
-    - code: not(isinstance(EST_LegacyDetails,pd.DataFrame)  and  not isinstance(EnergyStorTechnologies, pd.DataFrame))
+    - code: EST_LegacyDetails is None  or  EnergyStorTechnologies is not None
       message: If EnergyStorTechnologies is not given EST_LegacyDetails should not be given
 
+    - code: (PEC_Info is not None and PPEC) or (PEC_Info is None and not PPEC)
+      message: If PEC_Info is given then PhysicalPrimaryCarriers must be given and vice versa
 
-    
-#    A   B
-#    T   T    T
-#    T   F    F
-#    F   T    T
-#    F   F    T
+    - code: (PEC_ProdImpConstraints is not None and PhysicalPrimaryCarriers is not None) or (PEC_ProdImpConstraints is None and PhysicalPrimaryCarriers is None)
+      message: If PEC_ProdImpConstraints is given then PhysicalPrimaryCarriers must be given and vice versa
+
+    - code: (DEC_Info is not None and DEC) or (DEC_Info is None and not DEC)
+      message: If DEC_Info is given then Derived EnergyCarrier  must be given and vice versa
+      
+    - code: ((DEC_ImpConstraints is not None) and DEC) or (DEC_ImpConstraints is None and DEC) or (DEC_ImpConstraints is None and not DEC)
+      message: If DEC_ImpConstraints is given then Derived EnergyCarriers must be given
+      
+    - code: user_constraints_message()
+      message: UserConstraints validation

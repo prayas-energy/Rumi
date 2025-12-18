@@ -77,7 +77,8 @@ def get_base_energy_density(param_name):
         PhysicalDerivedCarriers = loaders.get_parameter(
             "PhysicalDerivedCarriers")
         basedata = PhysicalDerivedCarriers[['EnergyCarrier',
-                                            'EnergyDensity']]
+                                            'ImpEnergyDensity',
+                                            'DomEnergyDensity']]
     else:
         PhysicalPrimaryCarriers = loaders.get_parameter(
             "PhysicalPrimaryCarriers")
@@ -132,25 +133,17 @@ def first_year_value(baseyear, basevalues, refinedyear, refinedvalues):
 def override_energy_density(param_name, basedata, data):
     a = basedata.Year.values
     b = data.Year.values
-    if param_name == "PhysicalDerivedCarriersEnergyDensity":
-        v = data['EnergyDensity'].values
-        b, v = first_year_value(a, basedata.EnergyDensity.values, b, v)
-        values = running_override(a, b, v)
-        return pd.DataFrame({"EnergyCarrier": basedata.EnergyCarrier.copy(),
-                             "Year": basedata.Year.copy(),
-                             "EnergyDensity": values})
-    else:
-        v = data['ImpEnergyDensity'].values
-        b, v = first_year_value(a, basedata.ImpEnergyDensity.values, b, v)
-        ImpValues = running_override(a, b, v)
-        b = data.Year.values
-        v = data['DomEnergyDensity'].values
-        b, v = first_year_value(a, basedata.DomEnergyDensity.values, b, v)
-        DomValues = running_override(a, b, v)
-        return pd.DataFrame({"EnergyCarrier": basedata.EnergyCarrier.copy(),
-                             "Year": basedata.Year.copy(),
-                             "ImpEnergyDensity": ImpValues,
-                             "DomEnergyDensity": DomValues})
+    v = data['ImpEnergyDensity'].values
+    b, v = first_year_value(a, basedata.ImpEnergyDensity.values, b, v)
+    ImpValues = running_override(a, b, v)
+    b = data.Year.values
+    v = data['DomEnergyDensity'].values
+    b, v = first_year_value(a, basedata.DomEnergyDensity.values, b, v)
+    DomValues = running_override(a, b, v)
+    return pd.DataFrame({"EnergyCarrier": basedata.EnergyCarrier.copy(),
+                         "Year": basedata.Year.copy(),
+                         "ImpEnergyDensity": ImpValues,
+                         "DomEnergyDensity": DomValues})
 
 
 def expand_carrier_emissions(param_name: str,

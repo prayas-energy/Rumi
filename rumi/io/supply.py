@@ -20,6 +20,7 @@ from rumi.io import utilities
 from rumi.io import functionstore
 import logging
 import re
+import os
 import functools
 import numpy as np
 import itertools
@@ -32,6 +33,7 @@ print = functools.partial(print, flush=True)
 
 CONSTRAINT_END_KEYWORD = "BOUNDS"
 COMMENT_KEYWORD = "COMMENT"
+called_from_rumi_validate = True
 
 
 def load_param(param_name, subfolder):
@@ -65,6 +67,16 @@ def get_filtered_parameter(param_name, **kwargs):
         folder = param_specs.get("nested")
         geographic = param_specs.get("geographic")
         time = param_specs.get("time")
+        granularity_exception = param_specs.get("granularity_exception")
+
+        if granularity_exception:
+            geographic = "fine"
+            time = "fine"
+            # this is for two parameters DEC_ImpConstraints and PEC_ProdImpConstraints
+            # for these parameters we will assume that data will always come finer or equal
+            # to BA/BT but it is actually not. in the function call group_by_geographic/
+            # group_by_time it will be handled that if granularity is coarser then skip
+            # grouping.
         if geographic:
             param_data = filter_on_geography(
                 param_data, geographic, folder)
@@ -224,10 +236,15 @@ def get_nontime_columns(d):
 def group_by_time(d, balancing_time, superset_cols):
     timecols_ = common.get_time_columns(balancing_time)
     othercols = get_nontime_columns(d)
-    d = utilities.groupby_time(d.fillna(""), othercols, balancing_time).copy()
+
+    if is_finer(d, timecols_):
+        d = utilities.groupby_time(
+            d.fillna(""), othercols, balancing_time).copy()
+    else:
+        d = d.fillna("").copy()
 
     rows = len(d)
-    diff = [c for c in superset_cols if c not in timecols_]
+    diff = [c for c in superset_cols if c not in d.columns]
 
     for c in diff:
         d[c] = pd.Series([""]*rows, dtype=str, name=c)
@@ -302,13 +319,23 @@ def get_nongeographic_columns(d):
     return [c for c in d.columns if (not pd.api.types.is_float_dtype(d[c])) and c not in constant.GEOGRAPHIES]
 
 
+def is_finer(dataframe, grancols):
+    """returns True if dataframe is finer or equal to granuarity
+    """
+    return all([c in dataframe.columns for c in grancols])
+
+
 def group_by_geographic(d, balancing_area, superset_cols):
     geocols_ = common.get_geographic_columns(balancing_area)
     othercols = get_nongeographic_columns(d)
-    d = d.groupby(othercols + geocols_).sum(numeric_only=True).reset_index()
+
+    if is_finer(d, geocols_):
+        d = d.groupby(
+            othercols + geocols_).sum(numeric_only=True).reset_index()
 
     rows = len(d)
-    diff = [c for c in superset_cols if c not in geocols_]
+
+    diff = [c for c in superset_cols if c not in d.columns]
 
     for c in diff:
         d[c] = pd.Series([""]*rows, dtype=str, name=c)
@@ -348,10 +375,11 @@ def check_granularity(data, granularity, entity, GSTAR=None, TSTAR=None):
     return valid
 
 
-def check_balancing_area(param_name, data, entity):
+def check_balancing_area(param_name, data, entity, equal=True):
     """
-    check if given data is spcified at geographics granularity of corresponding
-    balacing area
+    check if geographic granularity of data is coarser or equal to corresponding balacing area
+
+    if equal is true then it checks if data is exactly at balacing area.
     """
 
     for entity_value in data[entity].unique():
@@ -361,19 +389,24 @@ def check_balancing_area(param_name, data, entity):
         subset = utilities.filter_empty(
             data.query(f"{entity} == '{entity_value}'"))
         geocols_ = utilities.get_geographic_columns_from_dataframe(subset)
-        valid = set(geocols) == set(geocols_)
+        if equal:
+            valid = set(geocols) == set(geocols_)
+            msg = "at granuarity which is not equal to balacing area. The data should be provided at granularity"
+        else:
+            valid = set(geocols) >= set(geocols_)
+            msg = "at finer than balancing area. The data should be coarser or equal to"
         if not valid:
             logger.error(
-                f"In {param_name} , data for {entity}, {entity_} is not specified at balancing area level. The data should be specified at geographic granularity {geogran}")
+                f"In {param_name} , data for {entity}, {entity_} is specified {msg} {geogran}")
             return False
 
     return True
 
 
-def check_balancing_time(param_name, data, entity):
+def check_balancing_time(param_name, data, entity, equal=True):
     """
-    check if given data is spcified at time granularity of corresponding
-    balancing time. comp specifies what kind of check to perform, equal, coarser or finer.
+    check if time granularity of data is coarser or equal to balacing time.
+    if equal if true then it checks id data is provided exactly at balancing time.
     """
 
     for entity_ in data[entity].unique():
@@ -381,10 +414,15 @@ def check_balancing_time(param_name, data, entity):
         timecols = utilities.get_time_columns(timegran)
         subset = utilities.filter_empty(data.query(f"{entity} == '{entity_}'"))
         timecols_ = utilities.get_time_columns_from_dataframe(subset)
-        valid = set(timecols) == set(timecols_)
+        if equal:
+            valid = set(timecols) == set(timecols_)
+            msg = "at granuarity which is not equal to balacing time. The data should be procided at granularity"
+        else:
+            valid = set(timecols) >= set(timecols_)
+            msg = "at finer than balancing time. The data should be coarser or equal to"
         if not valid:
             logger.error(
-                f"In {param_name} , data for {entity}, {entity_} is not specified at balacing time level. The data should be specified at time granularity {timegran}")
+                f"In {param_name} , data for {entity}, {entity_} is specified {msg} {timegran}")
             return False
 
     return True
@@ -759,20 +797,79 @@ def process_element(element):
     return [numeric(item) for item in element.split(",")]
 
 
-def expand_ALL(tokens, model):
+def validate_variable(tokens, model, linenum):
+    """validates line to be expanded in UserConstraints parameter
+    """
+    prefix = f"In UserConstraints line no. {linenum}"
+    variable_name = tokens[0][0]
+    if not isinstance(variable_name, str):
+        logger.error(f"{prefix}, first item must be text")
+        return False
+    if not isinstance(tokens[-1][0], (int, float)):
+        logger.error(f"{prefix}, last item must be numeric value")
+        return False
+    if not hasattr(model, variable_name):
+        logger.error(
+            f"{prefix}, the first item '{variable_name}' is not a valid model attribute")
+        return False
+    attrib = getattr(model, variable_name)
+    if not isinstance(attrib, Var):
+        logger.error(
+            f"{prefix}, the first item '{variable_name}' is not a valid model output")
+        return False
+    if attrib.dim() != len(tokens)-2:
+        logger.error(
+            f"{prefix}, number of items provided for '{variable_name}' is incorrect")
+        return False
+    return True
+
+
+def expand_ALL(tokens, model, linenum):
     """Expands ALL keyword from UserConstraints
     """
-    dataframe = pd.DataFrame(getattr(model, tokens[0][0])._data.keys())
+    prefix = f"In UserConstraints, line no. {linenum}"
+    variable_name = tokens[0][0]
+    if not hasattr(model, variable_name):
+        logger.error(
+            f"{prefix} has invalid variable name {variable_name}")
+        return None
+    dataframe = pd.DataFrame(getattr(model, variable_name)._data.keys())
     # this is to change column names from integers to text
-    assert len(dataframe.columns) <= 26
+    # assert len(dataframe.columns) <= 52
     dataframe = dataframe.rename(columns=dict(zip(
-        dataframe.columns, string.ascii_uppercase)))
-    q = make_filter_query(tokens[1:-1], dataframe.columns)
+        dataframe.columns, string.ascii_uppercase + string.ascii_lowercase)))
+
+    if not check_valid_index(dataframe, tokens[1:-1]):
+        logger.error(f"{prefix} has invalid fields")
+        return None
+    q = make_filter_query(tokens[1:-1], list(dataframe.columns))
     subset = dataframe.query(q)
-    subset.insert(loc=0, column='constraint_name', value=tokens[0][0])
+    if len(subset) == 0:
+        logger.error(
+            f"In UserConstraints, line {linenum} could not be expanded")
+        logger.error(",".join(tokens))
+        return None
+    subset.insert(loc=0, column='constraint_name', value=variable_name)
     n = len(subset.columns)
     subset.insert(loc=n, column='float_value', value=tokens[-1][0])
     return list(subset.itertuples(index=False, name=None))
+
+
+def check_valid_index(dataframe, tokens):
+    columns = dataframe.columns
+    if len(dataframe.columns) != len(tokens):
+        return False
+    colswithnoALL = {col: item for col, item in zip(
+        columns, tokens) if 'ALL' not in item}
+
+    if not colswithnoALL:
+        return True
+    subset = dataframe[list(colswithnoALL.keys())]
+    modeldata = set(subset.itertuples(index=False, name=None))
+    # here we expand the tokens, if there are any ranges or
+    # comma seperated fields
+    expanded = tuple(itertools.product(*list(colswithnoALL.values())))
+    return len([items for items in expanded if items in modeldata]) == len(expanded)
 
 
 def make_filter_query(tokens, columns):
@@ -784,7 +881,9 @@ def make_filter_query(tokens, columns):
             q = " | ".join(f"{col} == '{i}'" if isinstance(
                 i, str) else f"{col} == {i}" for i in item)
             queries.append(f"({q})")
-    return " & ".join(queries)
+
+    # if the query is empty then
+    return " & ".join(queries) or f"{columns[0]} == {columns[0]}"
 
 
 def parse_user_constraints(filepath, model=None):
@@ -811,7 +910,13 @@ def parse_user_constraints(filepath, model=None):
                     if any("ALL" in t for t in tokens):
                         # we skip doing the product here as it will
                         # be taken care by expand_ALL function
-                        constraint_rows.extend(expand_ALL(tokens, model))
+                        valid = validate_variable(tokens, model, n)
+                        if valid:
+                            expanded = expand_ALL(tokens, model, n)
+                        if valid and expanded:
+                            constraint_rows.extend(expanded)
+                        else:
+                            constraint_rows.append("ERROR")
                     else:
                         rows = tuple(itertools.product(*tokens))
                         constraint_rows.extend(rows)
@@ -820,6 +925,10 @@ def parse_user_constraints(filepath, model=None):
                 "In UserConstraints, last constraint did not end with BOUNDS")
             logger.warning(
                 "In UserConstraints, last constraint will be ignored")
+        if [e for c in constraints for e in c['VECTORS'] if e == "ERROR"]:
+            raise loaders.LoaderError(
+                "There are errors in UserConstraints parameter")
+
         return constraints
 
 
@@ -828,9 +937,34 @@ def read_user_constraints(*args, **kwargs):
     return parse_user_constraints(filepath, model=kwargs['model'])
 
 
+def user_constraints_message():
+    if called_from_rumi_validate:
+        path = filemanager.find_filepath("UserConstraints")
+        if os.path.exists(path) and os.path.isfile(path):
+            message = "UserConstraints parameter validation is skipped at this stage, it will be validated before optimization run"
+            print(message)
+            logger.warning(message)
+    return True
+
+
+def unset_call_from_rumi_validate_flag():
+    global called_from_rumi_validate
+    called_from_rumi_validate = False
+
+
+def set_call_from_rumi_validate_flag():
+    global called_from_rumi_validate
+    called_from_rumi_validate = True
+
+
 def validate_param(param_name, model):
     specs = filemanager.get_specs(param_name)
-    data = loaders.get_parameter(param_name, model=model)
+    try:
+        data = loaders.get_parameter(param_name, model=model)
+    except loaders.LoaderError as l:
+        logger.error("Validation failed for UserConstraints.")
+        logger.exception(l)
+        return False
     if data is not None:
         return loaders.validate_param(param_name,
                                       specs,

@@ -265,21 +265,31 @@ In addition to the above commands to run the demand and supply components of Rum
 
 The following help message lists the arguments for the `rumi_postprocess` command, which is to be run in the environment in which Rumi is installed:
 ```
- rumi_postprocess --help
- Usage: rumi_postprocess [OPTIONS]
+rumi_postprocess --help
+Usage: rumi_postprocess [OPTIONS]
 
   Post processing script. Supports computation of ECT emission  and EndUse
-  emission.
+  emission and TPES (Total Primary Energy Supply). Please see documention for
+  detailed description of all the options.
 
 Options:
-  -m, --model_instance_path PATH  Path of the model instance root folder
-  -s, --scenario TEXT             Name of the scenario within specified
-                                  model
   -o, --output TEXT               Path of the output folder
-  -D, --demand_output PATH        Path of Demand processing output folder
-  -S, --supply_output PATH        Path of Supply processing output folder
-  -l, --logger_level TEXT         Level for logging: one of INFO, WARN,
-                                  DEBUG or ERROR. (default: INFO)
+  -D, --demand_output PATH        Root Path of Demand processing output folder
+  -S, --supply_output PATH        Root Path of Supply processing output folder
+  -l, --logger_level TEXT         Level for logging: one of DEBUG, INFO, WARN
+                                  or ERROR. (default: INFO)
+  --compute_emission / --no_compute_emission
+                                  Enable/disable emission computation
+                                  (default: Enabled)
+  --compute_tpes / --no_compute_tpes
+                                  Enable/disable TPES computation (default:
+                                  Enabled)
+  required named options: 
+    -m, --model_instance_path PATH
+                                  Path of the model instance root folder
+                                  [required]
+    -s, --scenario TEXT           Name of the scenario within specified model
+                                  [required]
   --help                          Show this message and exit.
 ```
 

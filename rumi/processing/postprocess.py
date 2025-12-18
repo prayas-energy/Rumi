@@ -15,9 +15,11 @@
 Currently computation of emissions is supported.
 """
 import os
+import shutil
 import logging
 import functools
 import click
+from click_option_group import optgroup
 import pandas as pd
 import numpy as np
 from rumi.io import loaders
@@ -65,16 +67,16 @@ def check_ect():
 
         return False
 
-    files = ["ECTInputDom",
-             "ECTInputImp"]
+    files = ["ECTInputDomOutputGran",
+             "ECTInputImpOutputGran"]
     files = [".".join([f, "csv"]) for f in files]
     folderpath = get_supply_output_path()
     paths = [os.path.join(folderpath, f) for f in files]
     exists = [os.path.exists(p) for p in paths]
     if not all(exists):
-        print("Skipping ECTEmissions computation as the required supply outputs (ECTInputDom, ECTInputImp) are not present")
+        print("Skipping ECTEmissions computation as the required supply outputs (ECTInputDomOutputGran, ECTInputImpOutputGran) are not present")
         logger.warning(
-            "Skipping ECTEmissions computation as the required supply outputs (ECTInputDom, ECTInputImp) are not present")
+            "Skipping ECTEmissions computation as the required supply outputs (ECTInputDomOutputGran, ECTInputImpOutputGran) are not present")
 
     return all(exists)
 
@@ -119,20 +121,20 @@ def supply_compute_emission(emission_data):
         else:
             return v
 
-    ECTInputDom = read_supply_output("ECTInputDom")
-    ECTInputImp = read_supply_output("ECTInputImp")
+    ECTInputDomOutputGran = read_supply_output("ECTInputDomOutputGran")
+    ECTInputImpOutputGran = read_supply_output("ECTInputImpOutputGran")
 
-    dom = compute_ect_emission(ECTInputDom,
+    dom = compute_ect_emission(ECTInputDomOutputGran,
                                emission_data,
                                "Dom")
-    imp = compute_ect_emission(ECTInputImp,
+    imp = compute_ect_emission(ECTInputImpOutputGran,
                                emission_data,
                                "Imp")
 
     total = dom.merge(imp, how="outer")
 
-    total['Dom'].fillna(0, inplace=True)
-    total['Imp'].fillna(0, inplace=True)
+    total.fillna({'Dom': 0}, inplace=True)
+    total.fillna({'Imp': 0}, inplace=True)
 
     total['Emission'] = total['Dom']+total['Imp']
     del total['Dom']
@@ -177,10 +179,14 @@ def ect_emissions():
         emissions[get_ectemissions_column_order(emissions)])
 
 
+def get_postprocess_output_folder():
+    return filemanager.get_output_path("PostProcess")
+
+
 def write_postprocess_results(data, filename="ECTEmissions.csv"):
     """Writes postprocess results to the specified file
     """
-    outputpath = filemanager.get_output_path("PostProcess")
+    outputpath = get_postprocess_output_folder()
     filepath = os.path.join(outputpath, filename)
     print(f"Writing results: {filename}")
     logger.info(f"Writing results: {filepath}")
@@ -274,7 +280,7 @@ def compute_ect_emission(ECTInput,
                                          "EnergyConvTech"})
     cols = utilities.get_all_structure_columns(ect_input)
     ect_input = ect_input.merge(emission_data)
-    ect_input[name] = ect_input[f'ECTInput{name}'] *\
+    ect_input[name] = ect_input[f'ECTInput{name}OutputGran'] *\
         ect_input[f'{name}EmissionFactor']
 
     ect_input = season_wise(ect_input, name)
@@ -322,12 +328,11 @@ class EndUseEmissions(emission.EmissionDemandOnly):
             read_supply_output("EndUseDemandMetByDom"))
         self.EndUseDemandMetByImp = emission.handle_day_no(
             read_supply_output("EndUseDemandMetByImp"))
-    
+
     def write_results(self, emissions_):
         write_postprocess_results(emissions_, "EndUseEmissions.csv")
 
 
-        
 def demand_filepath(ds, es, ec, st=None):
     path = get_demand_output_path()
     path = os.path.join(path, "DemandSector", ds, es)
@@ -401,9 +406,9 @@ def get_supply_output_path():
 
     return os.path.join(path, "Run-Outputs")
 
-    
+
 def check_enduse_supply():
-    
+
     path = get_supply_output_path()
     files = ["EndUseDemandMetByDom.csv",
              "EndUseDemandMetByImp.csv"]
@@ -416,7 +421,28 @@ def check_enduse_supply():
 
     return all(exists)
 
-    
+
+def get_nonenergy_emissions_filepath():
+    demand_output = get_demand_output_path()
+    return os.path.join(demand_output, 'NonEnergyEmissions.csv')
+
+
+def nonenergy_emisions_exits():
+    nonenergy_emisions_file = get_nonenergy_emissions_filepath()
+    return os.path.isfile(nonenergy_emisions_file) and os.path.exists(nonenergy_emisions_file)
+
+
+def copy_nonenergy_emissions():
+    source = get_nonenergy_emissions_filepath()
+    dest = os.path.join(get_postprocess_output_folder(),
+                        "NonEnergyEmissions.csv")
+    logging.info(
+        "Copying NonEnergyEmissions from demand processing to post process.")
+    print(
+        "Copying NonEnergyEmissions from demand processing to post process.")
+    shutil.copy(source, dest)
+
+
 def emissions(model_instance_path,
               scenario: str,
               output: str,
@@ -441,6 +467,11 @@ def emissions(model_instance_path,
     load_logger("rumi.processing.postprocess")
 
     try:
+        if nonenergy_emisions_exits():
+            copy_nonenergy_emissions()
+        else:
+            print("Skipping copying NonEnergyEmissions")
+            logger.warning("Skipping copying NonEnergyEmissions")
         if not emission_types_exist():
             logger.warning(
                 "EmissionTypes parameter is absent, hence emissions can not be computed")
@@ -461,6 +492,7 @@ def emissions(model_instance_path,
                     "Some of the required demand outputs are absent, hence EndUseEmissions will not be computed")
                 logger.error(
                     "Some of the required demand outputs are absent, hence EndUseEmissions will not be computed")
+
     except Exception as e:
         logger.exception(e)
         raise e
@@ -535,6 +567,9 @@ def get_tpes_energycarriers(DomesticProd, Import, OutputFromECTiy):
         "NonPhysicalPrimaryCarriers")
     PhysicalPrimaryCarriers = loaders.get_parameter(
         "PhysicalPrimaryCarriersEnergyDensity")
+    PhysicalDerivedCarriers = loaders.get_parameter("PhysicalDerivedCarriers")
+    NonPhysicalDerivedCarriers = loaders.get_parameter(
+        "NonPhysicalDerivedCarriers")
 
     ect_ec = set(EnergyConvTechnologies.InputEC)
     ec = ect_ec & set(NonPhysicalPrimaryCarriers.EnergyCarrier)
@@ -542,11 +577,12 @@ def get_tpes_energycarriers(DomesticProd, Import, OutputFromECTiy):
     if supply_output_exists("DomesticProd") and\
        supply_output_exists("Import"):
         A = (set(DomesticProd.EnergyCarrier) & set(PhysicalPrimaryCarriers.EnergyCarrier)) | \
-            (set(Import.EnergyCarrier) & set(PhysicalPrimaryCarriers.EnergyCarrier))
+            (set(Import.EnergyCarrier) & (set(PhysicalPrimaryCarriers.EnergyCarrier) | set(
+                PhysicalDerivedCarriers.EnergyCarrier) | set(NonPhysicalDerivedCarriers.EnergyCarrier)))
     else:
         A = set()
 
-    if isinstance(NonPhysicalPrimaryCarriers, pd.DataFrame) and \
+    if isinstance(NonPhysicalPrimaryCarriers, pd.DataFrame) and\
        supply_output_exists("OutputFromECTiy"):
         nppec = NonPhysicalPrimaryCarriers.rename(
             columns={'EnergyCarrier': "InputEC"})
@@ -626,7 +662,7 @@ def tpes_nppec(granularity_columns,
                             granularity_columns,
                             entity='EnergyConvTech',
                             colname="OutputFromECTiy",
-                            density="EnergyDensity",
+                            density="DomEnergyDensity",
                             conv_eff='ConvEff')
     if len(tpes_pd) > 0:
         tpes_dfs.append(tpes_pd)
@@ -671,7 +707,7 @@ def compute_tpes_(data,
         ec_ = ec if entity == 'EnergyCarrier' else data_ec['EnergyCarrier'].values[0]
         conversion_factor = get_unit_fatcor(ec_)
 
-        data_ec['TPES'] = data_ec[colname]/ConvEff * \
+        data_ec['TPES'] = data_ec[colname]/ConvEff *\
             energy_density * conversion_factor
         tpes_ = data_ec.reset_index().groupby(
             granularity_columns, sort=False)['TPES'].sum()
@@ -710,11 +746,18 @@ def tpes_ppec(granularity_columns,
     """
     PhysicalPrimaryCarriers = loaders.get_parameter(
         "PhysicalPrimaryCarriersEnergyDensity")
-
+    years = pd.Series(utilities.get_years(), name='Year')
+    PhysicalDerivedCarriers = pd.merge(loaders.get_parameter(
+        "PhysicalDerivedCarriers"), years, how='cross')
+    NonPhysicalDerivedCarriers = pd.merge(loaders.get_parameter(
+        "NonPhysicalDerivedCarriers"), years, how='cross')
+    NonPhysicalDerivedCarriers['ImpEnergyDensity'] = 1
+    DC = pd.concat([PhysicalPrimaryCarriers,
+                    PhysicalDerivedCarriers,
+                    NonPhysicalDerivedCarriers])
     domestic_prod = season_wise(
         DomesticProd, "DomesticProd").merge(PhysicalPrimaryCarriers)
-    import_ = season_wise(Import, "Import").merge(PhysicalPrimaryCarriers)
-
+    import_ = season_wise(Import, "Import").merge(DC)
     tpes_dom_prod = compute_tpes_(domestic_prod,
                                   granularity_columns,
                                   entity='EnergyCarrier',
@@ -815,31 +858,35 @@ def tpes(model_instance_path,
 
 
 @click.command()
-@click.option("-m", "--model_instance_path",
-              type=click.Path(exists=True),
-              help="Path of the model instance root folder")
-@click.option("-s", "--scenario",
-              help="Name of the scenario within specified model")
 @click.option("-o", "--output",
               help="Path of the output folder",
               default=None)
 @click.option("-D", "--demand_output",
               type=click.Path(exists=True),
-              help="Path of Demand processing output folder",
+              help="Root Path of Demand processing output folder",
               default=None)
 @click.option("-S", "--supply_output",
               type=click.Path(exists=True),
-              help="Path of Supply processing output folder",
+              help="Root Path of Supply processing output folder",
               default=None)
 @click.option("-l", "--logger_level",
               help="Level for logging: one of DEBUG, INFO, WARN or ERROR. (default: INFO)",
               default="INFO")
-@click.option("--compute_emission/--no-emission",
-              help="Enable/disable validation (default: Enabled)",
-              default=False)
-@click.option("--compute_tpes/--no-tpes",
-              help="Enable/disable validation (default: Enabled)",
-              default=False)
+@click.option("--compute_emission/--no_compute_emission",
+              help="Enable/disable emission computation (default: Enabled)",
+              default=True)
+@click.option("--compute_tpes/--no_compute_tpes",
+              help="Enable/disable TPES computation (default: Enabled)",
+              default=True)
+@optgroup.group(
+    "required named options")
+@optgroup.option("-m", "--model_instance_path",
+                 type=click.Path(exists=True),
+                 required=True,
+                 help="Path of the model instance root folder")
+@optgroup.option("-s", "--scenario",
+                 required=True,
+                 help="Name of the scenario within specified model")
 def main(model_instance_path,
          scenario: str,
          output: str,
@@ -848,8 +895,12 @@ def main(model_instance_path,
          logger_level: str,
          compute_emission: bool,
          compute_tpes: bool):
-    """Post processing script. Supports computation of ECT emission  and EndUse emission and TPES (Total Primary Energy Supply)
+    """Post processing script. Supports computation of ECT emission  and EndUse emission and TPES (Total Primary Energy Supply).
+    Please see documention for detailed description of all the options.
     """
+    if (not compute_emission) and (not compute_tpes):
+        print("Nothing to do, exiting!")
+
     if not loaders.sanity_check_cmd_args("Common",
                                          model_instance_path,
                                          scenario,
@@ -858,9 +909,7 @@ def main(model_instance_path,
                                          "rumi_postprocess"):
         return
 
-    bothfalse = not compute_emission and not compute_tpes
-
-    if compute_emission or bothfalse:
+    if compute_emission:
         emissions(model_instance_path,
                   scenario,
                   output,
@@ -868,7 +917,7 @@ def main(model_instance_path,
                   supply_output,
                   logger_level,
                   no_shutdown=not (compute_emission and not compute_tpes))
-    if compute_tpes or bothfalse:
+    if compute_tpes:
         tpes(model_instance_path,
              scenario,
              output,

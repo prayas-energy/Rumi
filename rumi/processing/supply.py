@@ -200,6 +200,7 @@ def validate_params():
 
     try:
         logger.info("Validation of Supply Parameters")
+        supply.unset_call_from_rumi_validate_flag()
         supply_validation_ret_val = loaders.validate_params("Supply")
     except Exception as e:
         logger.exception(e)
@@ -302,7 +303,6 @@ BALANCINGAREA_COLUMN_NAME = "BalancingArea"
 ENERGYUNIT_COLUMN_NAME = "EnergyUnit"
 DOMENERGYDENSITY_COLUMN_NAME = "DomEnergyDensity"
 IMPENERGYDENSITY_COLUMN_NAME = "ImpEnergyDensity"
-ENERGYDENSITY_COLUMN_NAME = "EnergyDensity"
 
 UNMETDEMANDVALUE_COLUMN_NAME = "UnmetDemandValue"
 
@@ -325,9 +325,11 @@ BALAREA_SG3_STR = "SUBGEOGRAPHY3"
 DUMMY_TIME_STR = ""
 DUMMY_GEOG_STR = ""
 
+EC_CONSTRAINTSGRANULARITY_PARAM_NAME = "EC_ConstraintsGranularity"
 PEC_INFO_PARAM_NAME = "PEC_Info"
 PEC_PRODIMPCONSTRAINTS_PARAM_NAME = "PEC_ProdImpConstraints"
-DEC_TAXATION_PARAM_NAME = "DEC_Taxation"
+DEC_INFO_PARAM_NAME = "DEC_Info"
+DEC_IMPCONSTRAINTS_PARAM_NAME = "DEC_ImpConstraints"
 ECT_PARAM_NAME = "EnergyConvTechnologies"
 ECT_CAPADDBOUNDS_PARAM_NAME = "ECT_CapAddBounds"
 ECT_LIFETIME_PARAM_NAME = "ECT_Lifetime"
@@ -351,6 +353,8 @@ CONSTRAINT_DICT_VECTORS_KEY = "VECTORS"
 CONSTRAINT_DICT_BOUNDS_KEY = "BOUNDS"
 USER_CONSTRAINT_NAME_PREFIX = "UserConstraint#"
 
+GEOGRAPHICGRANULARITY_COLUMN_NAME = "GeographicGranularity"
+TIMEGRANULARITY_COLUMN_NAME = "TimeGranularity"
 NONENERGYSHARE_COLUMN_NAME = "NonEnergyShare"
 DOMESTICPRICE_COLUMN_NAME = "DomesticPrice"
 AVTAXOHDOM_COLUMN_NAME = "AVTaxOHDom"
@@ -361,8 +365,6 @@ FIXEDTAXOHIMP_COLUMN_NAME = "FixedTaxOHImp"
 
 MAXDOMESTICPRODUCT_COLUMN_NAME = "MaxDomesticProd"
 MAXIMPORT_COLUMN_NAME = "MaxImport"
-
-FIXEDTAXOH_COLUMN_NAME = "FixedTaxOH"
 
 ENERGYCONVTECH_COLUMN_NAME = "EnergyConvTech"
 INPUTEC_COLUMN_NAME = "InputEC"
@@ -483,20 +485,20 @@ bal_area_str_level_map = \
 
 days_per_month = [31,28,31,30,31,30,31,31,30,31,30,31]    # month indices start from 0
 
-def get_finest_bal_time(m):
-    bal_time_values = set(m.ec_bal_time_map.values())
+def get_finest_time_gran(ec_time_gran_map):
+    time_gran_values = set(ec_time_gran_map.values())
 
-    if BALTIME_DS_STR in bal_time_values: return BALTIME_DS_STR
-    if BALTIME_DT_STR in bal_time_values: return BALTIME_DT_STR
-    if BALTIME_SE_STR in bal_time_values: return BALTIME_SE_STR
+    if BALTIME_DS_STR in time_gran_values: return BALTIME_DS_STR
+    if BALTIME_DT_STR in time_gran_values: return BALTIME_DT_STR
+    if BALTIME_SE_STR in time_gran_values: return BALTIME_SE_STR
     return BALTIME_YR_STR
 
-def get_finest_bal_area(m):
-    bal_area_values = set(m.ec_bal_area_map.values())
+def get_finest_geog_gran(ec_geog_gran_map):
+    geog_gran_values = set(ec_geog_gran_map.values())
 
-    if BALAREA_SG3_STR in bal_area_values: return BALAREA_SG3_STR
-    if BALAREA_SG2_STR in bal_area_values: return BALAREA_SG2_STR
-    if BALAREA_SG1_STR in bal_area_values: return BALAREA_SG1_STR
+    if BALAREA_SG3_STR in geog_gran_values: return BALAREA_SG3_STR
+    if BALAREA_SG2_STR in geog_gran_values: return BALAREA_SG2_STR
+    if BALAREA_SG1_STR in geog_gran_values: return BALAREA_SG1_STR
     return BALAREA_MG_STR
 
 def calc_duration_of_seasons(df_se):
@@ -640,8 +642,8 @@ def get_common_params_data(m):
         **m.npdec_data_dict[ENERGYUNIT_COLUMN_NAME]
     }
     
-    m.num_time_levels_to_use = bal_time_str_level_map.get(get_finest_bal_time(m))
-    m.num_geography_levels_to_use = bal_area_str_level_map.get(get_finest_bal_area(m))
+    m.num_time_levels_to_use = bal_time_str_level_map.get(get_finest_time_gran(m.ec_bal_time_map))
+    m.num_geography_levels_to_use = bal_area_str_level_map.get(get_finest_geog_gran(m.ec_bal_area_map))
 
     m.time_columns_list: List[str] = time_columns_dict.get(m.num_time_levels_to_use)
     m.geog_columns_list: List[str] = geog_columns_dict.get(m.num_geography_levels_to_use)
@@ -748,6 +750,16 @@ def get_supply_params_data(m):
                                     m.src_geog_columns_list + \
                                     m.dest_geog_columns_list
 
+    m.ec_constraints_granularity: pd.DataFrame = \
+        get_param(EC_CONSTRAINTSGRANULARITY_PARAM_NAME, SUPPLY_PARAM)
+    m.ec_constraints_granularity_dict = \
+        m.ec_constraints_granularity.set_index(ENERGYCARRIER_COLUMN_NAME).to_dict()
+
+    m.ec_constraints_time_gran_map: Dict[str: str] = \
+        m.ec_constraints_granularity_dict[TIMEGRANULARITY_COLUMN_NAME]
+    m.ec_constraints_geog_gran_map: Dict[str: str] = \
+        m.ec_constraints_granularity_dict[GEOGRAPHICGRANULARITY_COLUMN_NAME]
+
     m.pec_info: pd.DataFrame = get_param(PEC_INFO_PARAM_NAME, SUPPLY_PARAM)
     m.pec_info_dict = m.pec_info.set_index(m.ec_time_geog_column_list).to_dict()
 
@@ -756,11 +768,16 @@ def get_supply_params_data(m):
     m.pec_prod_imp_constraints_dict = \
         m.pec_prod_imp_constraints.set_index(m.ec_time_geog_column_list).to_dict()
 
-    m.dec_taxation: pd.DataFrame = \
-        get_param(DEC_TAXATION_PARAM_NAME, SUPPLY_PARAM)
-    m.dec_taxation_dict = \
-        m.dec_taxation.set_index(m.ec_time_geog_column_list).to_dict()
-    
+    m.dec_info: pd.DataFrame = \
+        get_param(DEC_INFO_PARAM_NAME, SUPPLY_PARAM)
+    m.dec_info_dict = \
+        m.dec_info.set_index(m.ec_time_geog_column_list).to_dict()
+
+    m.dec_imp_constraints: pd.DataFrame = \
+        get_param(DEC_IMPCONSTRAINTS_PARAM_NAME, SUPPLY_PARAM)
+    m.dec_imp_constraints_dict = {} if (m.dec_imp_constraints is None) else \
+        m.dec_imp_constraints.set_index(m.ec_time_geog_column_list).to_dict()
+
     m.ect_cap_add_bounds: pd.DataFrame = \
         get_param(ECT_CAPADDBOUNDS_PARAM_NAME, SUPPLY_PARAM)
     m.ect_cap_add_bounds_dict = \
@@ -828,7 +845,7 @@ def get_supply_params_data(m):
     m.ec_demand_conv_map: Dict[(str, int): float] = \
     {
         **m.ppec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME],
-        **m.pdec_energy_density_data_dict[ENERGYDENSITY_COLUMN_NAME],
+        **m.pdec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME],
         **dict.fromkeys([(ec, yr)
                          for ec in list(m.npdec_data[ENERGYCARRIER_COLUMN_NAME])
                          for yr in list(range(m.StartYear, m.EndYear + 1))
@@ -845,9 +862,12 @@ def get_supply_params_data(m):
 
 def print_supply_params_data(m):
     print(m.ec_time_geog_column_list)
+    print(m.ec_constraints_granularity)
+    print(m.ec_constraints_time_gran_map, m.ec_constraints_geog_gran_map)
     print(m.pec_info)
     print(m.pec_prod_imp_constraints)
-    print(m.dec_taxation)
+    print(m.dec_info)
+    print(m.dec_imp_constraints)
     print(m.ect_cap_add_bounds)
     print(m.ect_lifetime)
     print(m.ect_operational_info)
@@ -865,9 +885,11 @@ def print_supply_params_data(m):
     print(m.end_use_demand_energy)
 
 def delete_supply_params_data(m):
+    del m.ec_constraints_granularity, m.ec_constraints_granularity_dict
     del m.pec_info, m.pec_info_dict
     del m.pec_prod_imp_constraints, m.pec_prod_imp_constraints_dict
-    del m.dec_taxation, m.dec_taxation_dict
+    del m.dec_info, m.dec_info_dict
+    del m.dec_imp_constraints, m.dec_imp_constraints_dict
     del m.ect_cap_add_bounds, m.ect_cap_add_bounds_dict
     del m.ect_lifetime, m.ect_lifetime_dict
     del m.ect_operational_info, m.ect_operational_info_dict
@@ -1097,32 +1119,6 @@ model.DummyGeog = Set(initialize = [DUMMY_GEOG_STR])
 
 model.InstYear = Set(initialize = get_install_year_range, 
                      ordered = Set.SortedOrder)
-model.InstYearECT = Set(initialize = get_install_year_range, 
-                        ordered = Set.SortedOrder)
-model.InstYearEST = Set(initialize = get_install_year_range, 
-                        ordered = Set.SortedOrder)
-
-if (model.num_time_levels_to_use == 1):
-    model.BalTimeYr = define_bal_time_sets_for_level1(model)
-elif (model.num_time_levels_to_use == 2):
-    model.BalTimeYr, model.BalTimeSe = define_bal_time_sets_for_level2(model)
-elif (model.num_time_levels_to_use == 3):
-    model.BalTimeYr, model.BalTimeSe, model.BalTimeDT = \
-                                      define_bal_time_sets_for_level3(model)
-elif (model.num_time_levels_to_use == 4):
-    model.BalTimeYr, model.BalTimeSe, model.BalTimeDT, model.BalTimeDS = \
-                                      define_bal_time_sets_for_level4(model)
-
-if (model.num_geography_levels_to_use == 1):
-    model.BalAreaMG = define_bal_area_sets_for_level1(model)
-elif (model.num_geography_levels_to_use == 2):
-    model.BalAreaMG, model.BalAreaSG1 = define_bal_area_sets_for_level2(model)
-elif (model.num_geography_levels_to_use == 3):
-    model.BalAreaMG, model.BalAreaSG1, model.BalAreaSG2 = \
-                                       define_bal_area_sets_for_level3(model)
-elif (model.num_geography_levels_to_use == 4):
-    model.BalAreaMG, model.BalAreaSG1, model.BalAreaSG2, model.BalAreaSG3 = \
-                                       define_bal_area_sets_for_level4(model)
 
 if (model.num_time_levels_to_use > 1):
     model.Season = model.SeasonInp | model.DummyTime
@@ -1139,18 +1135,24 @@ if (model.num_geography_levels_to_use > 3):
     model.SubGeography3 = model.SubGeog3AllValues | model.DummyGeog
 
 if (model.num_time_levels_to_use == 1):
+    model.BalTimeYr = define_bal_time_sets_for_level1(model)
     model.BalTime = Set(within = model.Year, initialize = model.BalTimeYr,
                         ordered = True)
 elif (model.num_time_levels_to_use == 2):
+    model.BalTimeYr, model.BalTimeSe = define_bal_time_sets_for_level2(model)
     model.BalTime = Set(within = model.Year * model.Season,
                         initialize = model.BalTimeYr | model.BalTimeSe,
                         ordered = True)
 elif (model.num_time_levels_to_use == 3):
+    model.BalTimeYr, model.BalTimeSe, model.BalTimeDT = \
+                                      define_bal_time_sets_for_level3(model)
     model.BalTime = Set(within = model.Year * model.Season * model.DayType,
                         initialize = model.BalTimeYr | model.BalTimeSe | 
                                      model.BalTimeDT,
                         ordered = True)
 elif (model.num_time_levels_to_use == 4):
+    model.BalTimeYr, model.BalTimeSe, model.BalTimeDT, model.BalTimeDS = \
+                                      define_bal_time_sets_for_level4(model)
     model.BalTime = Set(within = model.Year * model.Season * 
                                  model.DayType * model.DaySlice,
                         initialize = model.BalTimeYr | model.BalTimeSe | 
@@ -1158,19 +1160,25 @@ elif (model.num_time_levels_to_use == 4):
                         ordered = True)
 
 if (model.num_geography_levels_to_use == 1):
+    model.BalAreaMG = define_bal_area_sets_for_level1(model)
     model.BalArea = Set(within = model.ModelGeography,
                         initialize = model.BalAreaMG, ordered = True)
 elif (model.num_geography_levels_to_use == 2):
+    model.BalAreaMG, model.BalAreaSG1 = define_bal_area_sets_for_level2(model)
     model.BalArea = Set(within = model.ModelGeography * model.SubGeography1,
                         initialize = model.BalAreaMG | model.BalAreaSG1,
                         ordered = True)
 elif (model.num_geography_levels_to_use == 3):
+    model.BalAreaMG, model.BalAreaSG1, model.BalAreaSG2 = \
+                                       define_bal_area_sets_for_level3(model)
     model.BalArea = Set(within = model.ModelGeography * model.SubGeography1 * 
                                  model.SubGeography2,
                         initialize = model.BalAreaMG | model.BalAreaSG1 | 
                                      model.BalAreaSG2,
                         ordered = True)
 elif (model.num_geography_levels_to_use == 4):
+    model.BalAreaMG, model.BalAreaSG1, model.BalAreaSG2, model.BalAreaSG3 = \
+                                       define_bal_area_sets_for_level4(model)
     model.BalArea = Set(within = model.ModelGeography * model.SubGeography1 *
                                  model.SubGeography2 * model.SubGeography3,
                         initialize = model.BalAreaMG | model.BalAreaSG1 | 
@@ -1209,27 +1217,53 @@ def get_bal_time_inp(ec):
 def get_bal_area_inp(ec):
     return model.ec_bal_area_map.get(ec)
 
+def get_constraints_time_gran_inp(ec):
+    constraints_time_gran_inp = model.ec_constraints_time_gran_map.get(ec, BALTIME_YR_STR)
+    bal_time_inp = get_bal_time_inp(ec)
+
+    constraints_time_gran_level = bal_time_str_level_map.get(constraints_time_gran_inp)
+    bal_time_level = bal_time_str_level_map.get(bal_time_inp)
+
+    return (bal_time_inp if (constraints_time_gran_level > bal_time_level) 
+                         else constraints_time_gran_inp)
+
+def get_constraints_geog_gran_inp(ec):
+    constraints_geog_gran_inp = model.ec_constraints_geog_gran_map.get(ec, BALAREA_MG_STR)
+    bal_area_inp = get_bal_area_inp(ec)
+
+    constraints_geog_gran_level = bal_area_str_level_map.get(constraints_geog_gran_inp)
+    bal_area_level = bal_area_str_level_map.get(bal_area_inp)
+
+    return (bal_area_inp if (constraints_geog_gran_level > bal_area_level) 
+                         else constraints_geog_gran_inp)
+
+def get_time_gran_set(m, time_gran_inp):
+    if (time_gran_inp == BALTIME_YR_STR):
+        return m.BalTimeYr
+    if (time_gran_inp == BALTIME_SE_STR):
+        return m.BalTimeSe
+    if (time_gran_inp == BALTIME_DT_STR):
+        return m.BalTimeDT
+    if (time_gran_inp == BALTIME_DS_STR):
+        return m.BalTimeDS
+
+def get_geog_gran_set(m, geog_gran_inp):
+    if (geog_gran_inp == BALAREA_MG_STR):
+        return m.BalAreaMG
+    if (geog_gran_inp == BALAREA_SG1_STR):
+        return m.BalAreaSG1
+    if (geog_gran_inp == BALAREA_SG2_STR):
+        return m.BalAreaSG2
+    if (geog_gran_inp == BALAREA_SG3_STR):
+        return m.BalAreaSG3
+
 def get_bal_time_set(m, ec):
     bal_time_inp = get_bal_time_inp(ec)
-    if (bal_time_inp == BALTIME_YR_STR):
-        return m.BalTimeYr
-    if (bal_time_inp == BALTIME_SE_STR):
-        return m.BalTimeSe
-    if (bal_time_inp == BALTIME_DT_STR):
-        return m.BalTimeDT
-    if (bal_time_inp == BALTIME_DS_STR):
-        return m.BalTimeDS
+    return get_time_gran_set(m, bal_time_inp)
 
 def get_bal_area_set(m, ec):
     bal_area_inp = get_bal_area_inp(ec)
-    if (bal_area_inp == BALAREA_MG_STR):
-        return m.BalAreaMG
-    if (bal_area_inp == BALAREA_SG1_STR):
-        return m.BalAreaSG1
-    if (bal_area_inp == BALAREA_SG2_STR):
-        return m.BalAreaSG2
-    if (bal_area_inp == BALAREA_SG3_STR):
-        return m.BalAreaSG3
+    return get_geog_gran_set(m, bal_area_inp)
 
 def get_upto_bal_time_set(m, ec):
     bal_time_inp = get_bal_time_inp(ec)
@@ -1257,6 +1291,11 @@ def get_bt_ba(m, ec):
     bal_time_set = get_bal_time_set(m, ec)
     bal_area_set = get_bal_area_set(m, ec)
     return bal_time_set * bal_area_set
+
+def get_ec_constraints_time_geog(m, ec):
+    constraints_time_gran_set = get_time_gran_set(m, get_constraints_time_gran_inp(ec))
+    constraints_geog_gran_set = get_geog_gran_set(m, get_constraints_geog_gran_inp(ec))
+    return constraints_time_gran_set * constraints_geog_gran_set
 
 def get_upto_bt_upto_ba(m, ec):
     upto_bal_time_set = get_upto_bal_time_set(m, ec)
@@ -1292,6 +1331,16 @@ def init_dec_bt_ba(m):
             for ec in m.EnergyCarrierDerivedNonPhys | m.EnergyCarrierDerivedPhys
             for bt_ba in get_bt_ba(m, ec))
 
+def init_ppec_constraints_time_geog(m):
+    return ((ec, constraints_time_geog) 
+            for ec in m.EnergyCarrierPrimaryPhys
+            for constraints_time_geog in get_ec_constraints_time_geog(m, ec))
+
+def init_ec_constraints_time_geog(m):
+    return ((ec, constraints_time_geog) 
+            for ec in m.EnergyCarrier
+            for constraints_time_geog in get_ec_constraints_time_geog(m, ec))
+
 def init_ec_yr_ba1_ba2(m):
     return ((ec, yr, ba1_ba2)
             for ec in m.EnergyCarrier
@@ -1322,6 +1371,9 @@ model.EnergyCarrier = model.EnergyCarrierPrimaryPhys | \
                       model.EnergyCarrierDerivedNonPhys | \
                       model.EnergyCarrierDerivedPhys
 
+model.EnergyCarrierPhys = model.EnergyCarrierPrimaryPhys | \
+                          model.EnergyCarrierDerivedPhys
+
 model.EC_BT_BA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
                      initialize = init_ec_bt_ba, ordered = True)
 
@@ -1333,6 +1385,12 @@ model.PPEC_BT_BA = Set(within = model.EnergyCarrier * model.BalTime * model.BalA
 
 model.DEC_BT_BA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
                       initialize = init_dec_bt_ba, ordered = True)
+
+model.PPEC_CT_CA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
+                       initialize = init_ppec_constraints_time_geog, ordered = True)
+
+model.EC_CT_CA = Set(within = model.EnergyCarrier * model.BalTime * model.BalArea,
+                     initialize = init_ec_constraints_time_geog, ordered = True)
 
 model.EC_YR_BA1_BA2 = Set(within = model.EnergyCarrier * model.Year * 
                                    model.BalArea * model.BalArea,
@@ -1695,6 +1753,27 @@ def init_iy_ect_yr_ba(m):
             for yr in m.Year if iy <= yr 
             for ba in get_bal_area_set(m, ec))
 
+def init_iy_ect_filt_yr_ba(m):
+    return ((iy, ect, yr, ba)
+            for iy in m.InstYear for ect in m.EnergyConvTechFiltered
+            for ec in [get_output_dec(ect)]
+            for yr in m.Year if iy <= yr 
+            for ba in get_bal_area_set(m, ec))
+
+def init_iy_est_yr_ba(m):
+    return ((iy, est, yr, ba)
+            for iy in m.InstYear for est in m.EnergyStorTech
+            for ec in [get_stored_ec(est)]
+            for yr in m.Year if iy <= yr 
+            for ba in get_bal_area_set(m, ec))
+
+def init_iy_ect_bt_ba(m):
+    return ((iy, ect, bt, ba)
+            for iy in m.InstYear for ect in m.EnergyConvTech
+            for ec in [get_output_dec(ect)]
+            for bt in get_bal_time_set(m, ec) if iy <= bt[0] 
+            for ba in get_bal_area_set(m, ec))
+
 def init_iy_ect_btconc_ba(m):
     return ((iy, ect, btconc, ba)
             for iy in m.InstYear for ect in m.EnergyConvTech
@@ -1825,7 +1904,19 @@ model.EC_BTCONC_BA1_BA2 = Set(within = model.EnergyCarrier * model.BalTimeConc *
 
 model.IY_ECT_YR_BA = Set(within = model.InstYear * model.EnergyConvTech * 
                                   model.Year * model.BalArea, 
-                                  initialize = init_iy_ect_yr_ba, ordered = True)
+                         initialize = init_iy_ect_yr_ba, ordered = True)
+
+model.IY_ECTFILT_YR_BA = Set(within = model.InstYear * model.EnergyConvTechFiltered * 
+                                      model.Year * model.BalArea, 
+                             initialize = init_iy_ect_filt_yr_ba, ordered = True)
+
+model.IY_EST_YR_BA = Set(within = model.InstYear * model.EnergyStorTech * 
+                                  model.Year * model.BalArea, 
+                                  initialize = init_iy_est_yr_ba, ordered = True)
+
+model.IY_ECT_BT_BA = Set(within = model.InstYear * model.EnergyConvTech * 
+                                  model.BalTime * model.BalArea, 
+                         initialize = init_iy_ect_bt_ba, ordered = True)
 
 model.IY_ECT_BTCONC_BA = Set(within = model.InstYear * model.EnergyConvTech * 
                                       model.BalTimeConc * model.BalArea, 
@@ -1878,13 +1969,12 @@ model.EnergyUnitConv = Param(model.EU, model.EU,
 #########                   Energy Carriers                        #############
 
 def get_dom_energy_density_dict(m):
-    return m.ppec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME]
+    return (m.ppec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME] | 
+            m.pdec_energy_density_data_dict[DOMENERGYDENSITY_COLUMN_NAME])
 
 def get_imp_energy_density_dict(m):
-    return m.ppec_energy_density_data_dict[IMPENERGYDENSITY_COLUMN_NAME]
-
-def get_energy_density_dict(m):
-    return m.pdec_energy_density_data_dict[ENERGYDENSITY_COLUMN_NAME]
+    return (m.ppec_energy_density_data_dict[IMPENERGYDENSITY_COLUMN_NAME] | 
+            m.pdec_energy_density_data_dict[IMPENERGYDENSITY_COLUMN_NAME])
 
 def get_non_energy_share_dict(m):
     return m.pec_info_dict[NONENERGYSHARE_COLUMN_NAME]
@@ -1896,25 +1986,28 @@ def get_av_tax_oh_dom_dict(m):
     return m.pec_info_dict[AVTAXOHDOM_COLUMN_NAME]
 
 def get_fixed_tax_oh_dom_dict(m):
-    return m.pec_info_dict[FIXEDTAXOHDOM_COLUMN_NAME]
+    return (m.pec_info_dict[FIXEDTAXOHDOM_COLUMN_NAME] | 
+            m.dec_info_dict[FIXEDTAXOHDOM_COLUMN_NAME])
 
 def get_import_price_dict(m):
-    return m.pec_info_dict[IMPORTPRICE_COLUMN_NAME]
+    return (m.pec_info_dict[IMPORTPRICE_COLUMN_NAME] | 
+            m.dec_info_dict[IMPORTPRICE_COLUMN_NAME])
 
 def get_av_tax_oh_imp_dict(m):
-    return m.pec_info_dict[AVTAXOHIMP_COLUMN_NAME]
+    return (m.pec_info_dict[AVTAXOHIMP_COLUMN_NAME] | 
+            m.dec_info_dict[AVTAXOHIMP_COLUMN_NAME])
 
 def get_fixed_tax_oh_imp_dict(m):
-    return m.pec_info_dict[FIXEDTAXOHIMP_COLUMN_NAME]
+    return (m.pec_info_dict[FIXEDTAXOHIMP_COLUMN_NAME] | 
+            m.dec_info_dict[FIXEDTAXOHIMP_COLUMN_NAME])
 
 def get_max_domestic_prod_dict(m):
     return m.pec_prod_imp_constraints_dict[MAXDOMESTICPRODUCT_COLUMN_NAME]
 
 def get_max_import_dict(m):
-    return m.pec_prod_imp_constraints_dict[MAXIMPORT_COLUMN_NAME]
-
-def get_fixed_tax_oh_dec_dict(m):
-    return m.dec_taxation_dict[FIXEDTAXOH_COLUMN_NAME]
+    return (m.pec_prod_imp_constraints_dict[MAXIMPORT_COLUMN_NAME] |
+            ({} if (not m.dec_imp_constraints_dict) 
+                else m.dec_imp_constraints_dict[MAXIMPORT_COLUMN_NAME]))
 
 def get_cost_per_unmet_unit_dict(m):
     return m.unmet_demand_value_data_dict[UNMETDEMANDVALUE_COLUMN_NAME]
@@ -1923,20 +2016,15 @@ def get_cost_per_unmet_unit_dict(m):
 model.EnergyUnit = Param(model.EnergyCarrier,
                          initialize = model.ec_energy_unit_map, within = Any)
 
-model.DomEnergyDensity = Param(model.EnergyCarrierPrimaryPhys,
+model.DomEnergyDensity = Param(model.EnergyCarrierPhys,
                                model.Year,
                                initialize = get_dom_energy_density_dict,
                                within = PositiveReals)
 
-model.ImpEnergyDensity = Param(model.EnergyCarrierPrimaryPhys,
+model.ImpEnergyDensity = Param(model.EnergyCarrierPhys,
                                model.Year,
                                initialize = get_imp_energy_density_dict,
                                within = PositiveReals)
-
-model.EnergyDensity = Param(model.EnergyCarrierDerivedPhys,
-                            model.Year,
-                            initialize = get_energy_density_dict,
-                            within = PositiveReals)
 
 model.NonEnergyShare = Param(model.PPEC_BT_BA, 
                              initialize = get_non_energy_share_dict,
@@ -1950,33 +2038,29 @@ model.AVTaxOHDom = Param(model.PPEC_BT_BA,
                          initialize = get_av_tax_oh_dom_dict,
                          within = NonNegativeReals, default = 0.0)
 
-model.FixedTaxOHDom = Param(model.PPEC_BT_BA, 
+model.FixedTaxOHDom = Param(model.EC_BT_BA, 
                             initialize = get_fixed_tax_oh_dom_dict,
                             within = NonNegativeReals, default = 0.0)
 
-model.ImportPrice = Param(model.PPEC_BT_BA, 
+model.ImportPrice = Param(model.EC_BT_BA, 
                           initialize = get_import_price_dict,
                           within = NonNegativeReals, default = 0.0)
 
-model.AVTaxOHImp = Param(model.PPEC_BT_BA, 
+model.AVTaxOHImp = Param(model.EC_BT_BA, 
                          initialize = get_av_tax_oh_imp_dict,
                          within = NonNegativeReals, default = 0.0)
 
-model.FixedTaxOHImp = Param(model.PPEC_BT_BA, 
+model.FixedTaxOHImp = Param(model.EC_BT_BA, 
                             initialize = get_fixed_tax_oh_imp_dict,
                             within = NonNegativeReals, default = 0.0)
 
-model.MaxDomesticProd = Param(model.PPEC_BT_BA, 
+model.MaxDomesticProd = Param(model.PPEC_CT_CA, 
                               initialize = get_max_domestic_prod_dict,
                               within = NonNegativeReals, default = 0.0)
 
-model.MaxImport = Param(model.PPEC_BT_BA, 
+model.MaxImport = Param(model.EC_CT_CA, 
                         initialize = get_max_import_dict,
                         within = NonNegativeReals, default = 0.0)
-
-model.FixedTaxOHDEC = Param(model.DEC_BT_BA, 
-                            initialize = get_fixed_tax_oh_dec_dict,
-                            within = NonNegativeReals, default = 0.0)
 
 model.CostPerUnmetUnit = Param(model.EnergyCarrier,
                                model.Year,
@@ -2065,23 +2149,23 @@ model.MaxRampDownRate = Param(model.EnergyConvTech, model.InstYear,
                               initialize = get_max_ramp_down_rate_dict,
                               within = PercentFraction, default = 1.0)
 
-model.ConvEff = Param(model.InstYear, model.ECT_YR_BA,
+model.ConvEff = Param(model.IY_ECT_YR_BA,
                       initialize = get_conv_eff_dict,
                       within = PercentFraction, default = 1.0)
 
-model.FixedCost = Param(model.InstYear, model.ECT_YR_BA,
+model.FixedCost = Param(model.IY_ECT_YR_BA,
                         initialize = get_fixed_cost_dict,
                         within = NonNegativeReals, default = 0.0)
 
-model.VarCost = Param(model.InstYear, model.ECT_YR_BA,
+model.VarCost = Param(model.IY_ECT_YR_BA,
                       initialize = get_var_cost_dict,
                       within = NonNegativeReals, default = 0.0)
 
-model.MaxAnnualUF = Param(model.InstYear, model.ECT_YR_BA,
+model.MaxAnnualUF = Param(model.IY_ECT_YR_BA,
                           initialize = get_max_annual_uf_dict,
                           within = PercentFraction, default = 1.0)
 
-model.MaxUF = Param(model.InstYear, model.ECT_BT_BA,
+model.MaxUF = Param(model.IY_ECT_BT_BA,
                     initialize = get_max_uf_dict,
                     within = PercentFraction, default = 1.0)
 
@@ -2174,11 +2258,11 @@ model.DepthOfDischarge = Param(model.EnergyStorTech, model.InstYear,
                                initialize = get_depth_of_discharge_dict,
                                within = PercentFraction, default = 0.0)
 
-model.StorEfficiency = Param(model.InstYear, model.EST_YR_BA,
+model.StorEfficiency = Param(model.IY_EST_YR_BA,
                              initialize = get_stor_efficiency_dict,
                              within = PercentFraction, default = 0.0)
 
-model.StorFixedCost = Param(model.InstYear, model.EST_YR_BA,
+model.StorFixedCost = Param(model.IY_EST_YR_BA,
                             initialize = get_stor_fixed_cost_dict,
                             within = NonNegativeReals, default = 0.0)
 
@@ -2279,10 +2363,8 @@ def get_end_use_demand(m, ec, *args):       #args = btconc_ba
     bt = (btconc[0 : 2] + btconc[3 : ]) if m.day_no_time_elem_reqd else btconc
     yr = btconc[0]
     
-    if ec in m.EnergyCarrierPrimaryPhys:
+    if (ec in m.EnergyCarrierPhys):
         return m.EndUseDemandEnergy[ec, bt, ba] / m.DomEnergyDensity[ec, yr]
-    elif ec in m.EnergyCarrierDerivedPhys:
-        return m.EndUseDemandEnergy[ec, bt, ba] / m.EnergyDensity[ec, yr]
     else:
         return m.EndUseDemandEnergy[ec, bt, ba]
 
@@ -2435,11 +2517,9 @@ def get_ect_unit_io_output_conv_factor(m, dom_or_imp, iy, ect, yr, *args):  # ar
     iec = get_input_ec(ect)
     oec = get_output_dec(ect)
 
-    if iec in m.EnergyCarrierPrimaryPhys:
+    if (iec in m.EnergyCarrierPhys):
         conv_fact = m.DomEnergyDensity[iec, yr] if (dom_or_imp == EC_DOM_STR) \
                                                 else m.ImpEnergyDensity[iec, yr]
-    elif iec in m.EnergyCarrierDerivedPhys:
-        conv_fact = m.EnergyDensity[iec, yr]
     else:
         conv_fact = 1
 
@@ -2448,7 +2528,7 @@ def get_ect_unit_io_output_conv_factor(m, dom_or_imp, iy, ect, yr, *args):  # ar
     conv_fact *= m.EnergyUnitConv[m.EnergyUnit[iec], m.EnergyUnit[oec]]
 
     if oec in m.EnergyCarrierDerivedPhys:
-        conv_fact /= m.EnergyDensity[oec, yr]
+        conv_fact /= m.DomEnergyDensity[oec, yr]
 
     # conv_fact *=  (1 - m.AuxCons[ect, iy])
 
@@ -2538,8 +2618,7 @@ model.StorLifetimeCyclesInModel = Param(model.InstYear, model.EST_BA,
                                         initialize = get_stor_lifetime_cycles_in_model_dict,
                                         within = NonNegativeReals, default = 0.0)
 
-model.ECTUnitIOOutputConv = Param([EC_DOM_STR, EC_IMP_STR], model.InstYear, 
-                                  model.ECTFILT_YR_BA, 
+model.ECTUnitIOOutputConv = Param([EC_DOM_STR, EC_IMP_STR], model.IY_ECTFILT_YR_BA, 
                                   initialize = get_ect_unit_io_output_conv_factor, 
                                   within = NonNegativeReals, default = 0.0)
 
@@ -2560,15 +2639,16 @@ model.ECTFixedCost = Var(model.EnergyConvTech, model.Year,
                          within = NonNegativeReals)
 model.CostOfStorage = Var(model.EnergyStorTech, model.Year, 
                           within = NonNegativeReals)
+model.TotalECCostInBT_BA = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
+# "total" EC cost here does not include “additional variable cost” of 
+# using the EC as an input to any relevant ECT
 model.ECCostInBT_BA = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
-model.PECCostInBT_BA = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
-model.DomPECCostInBT_BA = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
-model.ImpPECCostInBT_BA = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
-model.DECCostInBT_BA = Var(model.DEC_BTCONC_BA, within = NonNegativeReals)
+model.DomECCostInBT_BA = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
+model.ImpECCostInBT_BA = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.ECTInputVarCost = Var(model.EnergyCarrier, model.Year, 
                             within = NonNegativeReals)
-model.StorDischargeTransitCost = Var(model.EC_BTCONC_BA, 
-                                     within = NonNegativeReals)
+model.ECTransitCost = Var(model.EC_BTCONC_BA, 
+                          within = NonNegativeReals)
 
 #########                   Energy supply, flow, demand related #############
 model.UnmetDemand = Var(model.EC_BTCONC_BA, within = NonNegativeReals,
@@ -2594,10 +2674,10 @@ model.ImpSupplyFrom = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.DomesticProd = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.Import = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 model.SupplyFromECTiy = Var(model.IY_ECT_BTCONC_BA, within = NonNegativeReals)
-model.DomStorDischargedFromTo = Var(model.EC_BTCONC_BA1_BA2, 
-                                    within = NonNegativeReals)
-model.ImpStorDischargedFromTo = Var(model.EC_BTCONC_BA1_BA2, 
-                                    within = NonNegativeReals)
+model.DomStorDischargedFrom = Var(model.EC_BTCONC_BA, 
+                                  within = NonNegativeReals)
+model.ImpStorDischargedFrom = Var(model.EC_BTCONC_BA, 
+                                  within = NonNegativeReals)
 model.OutputFromECTiyUsingDomInput = Var(model.IY_ECTFILT_BTCONC_BA, 
                                          within = NonNegativeReals)
 model.OutputFromECTiyUsingImpInput = Var(model.IY_ECTFILT_BTCONC_BA, 
@@ -2632,6 +2712,10 @@ model.EffectiveStorCapacity = Var(model.InstYear, model.EST_YR_BA,
                                   within = NonNegativeReals)
 model.StorLifetimeCharge = Var(model.IY_EST_BTCONC_BA, within = NonNegativeReals)
 model.StorCapacityExistingInYear = Var(model.EST_YR_BA, within = NonNegativeReals)
+
+#########                   EC constraints related              #############
+model.MaxDomesticProdVar = Var(model.PPEC_BTCONC_BA, within = NonNegativeReals)
+model.MaxImportVar = Var(model.EC_BTCONC_BA, within = NonNegativeReals)
 
 
 ######################
@@ -2710,85 +2794,57 @@ def cost_of_carrier_rule(m, ec, y):
 
     return (m.CostOfCarrier[ec, y] == 
             m.ECTInputVarCost[ec, y] + 
-            sum(m.ECCostInBT_BA[ec, btconc, ba] * get_ec_scale_factor(m, ec, btconc) 
+            sum(m.TotalECCostInBT_BA[ec, btconc, ba] * get_ec_scale_factor(m, ec, btconc) 
                 for btconc in bal_time_conc_set if (btconc[0] == y) 
                 for ba in bal_area_set))
 
 model.cost_of_carrier_constraint = Constraint(model.EnergyCarrier, model.Year, 
     rule = cost_of_carrier_rule)
 
+def total_ec_cost_in_bt_ba_rule(m, ec, *args):      #args = btconc_ba
+    return (m.TotalECCostInBT_BA[ec, args] == 
+            m.ECCostInBT_BA[ec, args] + 
+            m.ECTransitCost[ec, args] + 
+            m.UnmetDemand[ec, args] * m.CostPerUnmetUnit[ec, args[0]])
+
+model.total_ec_cost_in_bt_ba_constraint = Constraint(model.EC_BTCONC_BA, 
+    rule = total_ec_cost_in_bt_ba_rule)
+
 def ec_cost_in_bt_ba_rule(m, ec, *args):            #args = btconc_ba
     return (m.ECCostInBT_BA[ec, args] == 
-            (m.PECCostInBT_BA[ec, args] if is_primary(ec) else 
-             m.DECCostInBT_BA[ec, args]) + 
-            m.StorDischargeTransitCost[ec, args] + 
-            m.UnmetDemand[ec, args] * m.CostPerUnmetUnit[ec, args[0]])
+            m.DomECCostInBT_BA[ec, args] + m.ImpECCostInBT_BA[ec, args])
 
 model.ec_cost_in_bt_ba_constraint = Constraint(model.EC_BTCONC_BA, 
     rule = ec_cost_in_bt_ba_rule)
 
-def pec_cost_in_bt_ba_rule(m, ec, *args):           #args = btconc_ba
-    return (m.PECCostInBT_BA[ec, args] == 
-            m.DomPECCostInBT_BA[ec, args] + m.ImpPECCostInBT_BA[ec, args])
-
-model.pec_cost_in_bt_ba_constraint = Constraint(model.PPEC_BTCONC_BA, 
-    rule = pec_cost_in_bt_ba_rule)
-
-def dom_pec_cost_in_bt_ba_rule(m, ec, *args):       #args = btconc_ba
+def dom_ec_cost_in_bt_ba_rule(m, ec, *args):        #args = btconc_ba
     btconc = args[0 : m.num_conc_time_colms]
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
     bt = (btconc[0 : 2] + btconc[3 : ]) if m.day_no_time_elem_reqd else btconc
-    bal_area_set = get_bal_area_set(m, ec)
 
-    return (m.DomPECCostInBT_BA[ec, args] == 
-            sum((m.DomSupplyFromTo[ec, btconc, ba_src, ba] - 
-                 m.DomStorDischargedFromTo[ec, btconc, ba_src, ba]) * 
-                (m.DomesticPrice[ec, bt, ba_src] * 
-                 (1 + m.AVTaxOHDom[ec, bt, ba_src]) + 
-                 m.FixedTaxOHDom[ec, bt, ba_src] + 
-                 m.DerivedTransitCost[ec, args[0], ba_src, ba]) 
-                for ba_src in bal_area_set
-               ))
+    return (m.DomECCostInBT_BA[ec, args] == 
+            m.DomesticProd[ec, args] * 
+            (((m.DomesticPrice[ec, bt, ba] * (1 + m.AVTaxOHDom[ec, bt, ba]))
+              if (ec in m.EnergyCarrierPrimaryPhys) else 0) + 
+             m.FixedTaxOHDom[ec, bt, ba]) 
+           )
 
-model.dom_pec_cost_in_bt_ba_constraint = Constraint(model.PPEC_BTCONC_BA, 
-    rule = dom_pec_cost_in_bt_ba_rule)
+model.dom_ec_cost_in_bt_ba_constraint = Constraint(model.EC_BTCONC_BA, 
+    rule = dom_ec_cost_in_bt_ba_rule)
 
-def imp_pec_cost_in_bt_ba_rule(m, ec, *args):       #args = btconc_ba
+def imp_ec_cost_in_bt_ba_rule(m, ec, *args):        #args = btconc_ba
     btconc = args[0 : m.num_conc_time_colms]
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
     bt = (btconc[0 : 2] + btconc[3 : ]) if m.day_no_time_elem_reqd else btconc
-    bal_area_set = get_bal_area_set(m, ec)
 
-    return (m.ImpPECCostInBT_BA[ec, args] == 
-            sum((m.ImpSupplyFromTo[ec, btconc, ba_src, ba] - 
-                 m.ImpStorDischargedFromTo[ec, btconc, ba_src, ba]) * 
-                (m.ImportPrice[ec, bt, ba_src] * 
-                 (1 + m.AVTaxOHImp[ec, bt, ba_src]) + 
-                 m.FixedTaxOHImp[ec, bt, ba_src] + 
-                 m.DerivedTransitCost[ec, args[0], ba_src, ba]) 
-                for ba_src in bal_area_set
-               ))
+    return (m.ImpECCostInBT_BA[ec, args] == 
+            m.Import[ec, args] * 
+            (m.ImportPrice[ec, bt, ba] * (1 + m.AVTaxOHImp[ec, bt, ba]) + 
+             m.FixedTaxOHImp[ec, bt, ba]) 
+           )
 
-model.imp_pec_cost_in_bt_ba_constraint = Constraint(model.PPEC_BTCONC_BA, 
-    rule = imp_pec_cost_in_bt_ba_rule)
-
-def dec_cost_in_bt_ba_rule(m, ec, *args):           #args = btconc_ba
-    btconc = args[0 : m.num_conc_time_colms]
-    ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
-    bt = (btconc[0 : 2] + btconc[3 : ]) if m.day_no_time_elem_reqd else btconc
-    bal_area_set = get_bal_area_set(m, ec)
-
-    return (m.DECCostInBT_BA[ec, args] == 
-            sum((m.TotalSupplyFromTo[ec, btconc, ba_src, ba] - 
-                 m.DomStorDischargedFromTo[ec, btconc, ba_src, ba] - 
-                 m.ImpStorDischargedFromTo[ec, btconc, ba_src, ba]) * 
-                (m.FixedTaxOHDEC[ec, bt, ba_src] + 
-                 m.DerivedTransitCost[ec, args[0], ba_src, ba]) 
-                for ba_src in bal_area_set
-               ))
-
-model.dec_cost_in_bt_ba_constraint = Constraint(model.DEC_BTCONC_BA, 
-    rule = dec_cost_in_bt_ba_rule)
+model.imp_ec_cost_in_bt_ba_constraint = Constraint(model.EC_BTCONC_BA, 
+    rule = imp_ec_cost_in_bt_ba_rule)
 
 def ect_var_cost_rule(m, ec, y):
     year_time_elem_list = [DUMMY_TIME_STR] * m.num_conc_time_colms
@@ -2810,20 +2866,20 @@ def ect_var_cost_rule(m, ec, y):
 model.ect_var_cost_constraint = Constraint(model.EnergyCarrier, model.Year, 
     rule = ect_var_cost_rule)
 
-def stor_discharge_transit_cost_rule(m, ec, *args):         #args = btconc_ba
+def ec_transit_cost_rule(m, ec, *args):             #args = btconc_ba
     btconc = args[0 : m.num_conc_time_colms]
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
     bal_area_set = get_bal_area_set(m, ec)
 
-    return (m.StorDischargeTransitCost[ec, args] == 
-            sum((m.DomStorDischargedFromTo[ec, btconc, ba_src, ba] + 
-                 m.ImpStorDischargedFromTo[ec, btconc, ba_src, ba]) * 
-                m.DerivedTransitCost[ec, args[0], ba_src, ba]
-                for ba_src in bal_area_set
+    return (m.ECTransitCost[ec, args] == 
+            sum((m.DomSupplyFromTo[ec, btconc, ba, ba_dest] + 
+                 m.ImpSupplyFromTo[ec, btconc, ba, ba_dest]) * 
+                m.DerivedTransitCost[ec, args[0], ba, ba_dest]
+                for ba_dest in bal_area_set
                ))
 
-model.stor_discharge_transit_cost_constraint = Constraint(model.EC_BTCONC_BA, 
-    rule = stor_discharge_transit_cost_rule)
+model.ec_transit_cost_constraint = Constraint(model.EC_BTCONC_BA, 
+    rule = ec_transit_cost_rule)
 
 #########                   Energy supply, flow, demand related #############
 
@@ -2857,7 +2913,7 @@ model.total_supply_from_to_constraint1 = Constraint(model.EC_BTCONC_BA1_BA2,
 def domestic_prod_rule(m, ec, *args):               #args = btconc_ba
     if (ec in m.EnergyCarrierPrimaryPhys):
         arg_p = (args[0 : 2] + args[3 : ]) if m.day_no_time_elem_reqd else args
-        return (m.DomesticProd[ec, args] <= m.MaxDomesticProd[ec, arg_p] * 
+        return (m.DomesticProd[ec, args] <= m.MaxDomesticProdVar[ec, args] * 
                                             (1 - m.NonEnergyShare[ec, arg_p]))
     else:
         return (m.DomesticProd[ec, args] == 
@@ -2871,32 +2927,20 @@ model.domestic_prod_constraint = Constraint(model.EC_BTCONC_BA,
     rule = domestic_prod_rule)
 
 def import_rule(m, ec, *args):                      #args = btconc_ba
-    if (ec in m.EnergyCarrierPrimaryPhys):
-        arg_p = (args[0 : 2] + args[3 : ]) if m.day_no_time_elem_reqd else args
-        return (m.Import[ec, args] <= m.MaxImport[ec, arg_p])
-    else:
-        return (m.Import[ec, args] == 0)
+    return (m.Import[ec, args] <= m.MaxImportVar[ec, args])
 
 model.import_constraint = Constraint(model.EC_BTCONC_BA, rule = import_rule)
 
 def dom_supply_from_rule2(m, ec, *args):            #args = btconc_ba
-    bal_area_set = get_bal_area_set(m, ec)
-
     return (m.DomSupplyFrom[ec, args] == 
-            m.DomesticProd[ec, args] + 
-            sum(m.DomStorDischargedFromTo[ec, args, ba_dest]
-                for ba_dest in bal_area_set))
+            m.DomesticProd[ec, args] + m.DomStorDischargedFrom[ec, args])
 
 model.dom_supply_from_constraint2 = Constraint(model.EC_BTCONC_BA, 
     rule = dom_supply_from_rule2)
 
 def imp_supply_from_rule2(m, ec, *args):            #args = btconc_ba
-    bal_area_set = get_bal_area_set(m, ec)
-
     return (m.ImpSupplyFrom[ec, args] == 
-            m.Import[ec, args] + 
-            sum(m.ImpStorDischargedFromTo[ec, args, ba_dest]
-                for ba_dest in bal_area_set))
+            m.Import[ec, args] + m.ImpStorDischargedFrom[ec, args])
 
 model.imp_supply_from_constraint2 = Constraint(model.EC_BTCONC_BA, 
     rule = imp_supply_from_rule2)
@@ -2949,7 +2993,9 @@ model.output_from_ect_iy_constraint = Constraint(model.IY_ECT_BTCONC_BA,
     rule = output_from_ect_iy_rule)
 
 def max_annual_uf_rule(m, iy, ect, *args):          #args = yr_ba
-    return ( sum(m.OutputFromECTiy[iy, ect, btconc, args[1:]]
+    return ( sum((m.OutputFromECTiy[iy, ect, btconc, args[1:]] * 
+                  get_ec_scale_factor(m, get_output_dec(ect), btconc)
+                 )
                  for btconc in get_bal_time_conc_set(m, get_output_dec(ect)) 
                  if (btconc[0] == args[0])
                 )
@@ -3143,7 +3189,7 @@ def end_use_demand_rule(m, ec, *args):              #args = btconc_ba
             m.UnmetDemand[ec, args] + m.EndUseDemandMetByDom[ec, args] + 
             m.EndUseDemandMetByImp[ec, args] * 
             ((m.ImpEnergyDensity[ec, yr] / m.DomEnergyDensity[ec, yr]) 
-             if (ec in m.EnergyCarrierPrimaryPhys) else 1)
+             if (ec in m.EnergyCarrierPhys) else 1)
            )
 
 model.end_use_demand_constraint = Constraint(model.EC_BTCONC_BA, 
@@ -3438,11 +3484,8 @@ model.stor_capacity_existing_in_year_constraint = Constraint(model.EST_YR_BA,
 
 def dom_stor_discharged_from_rule(m, ec, *args):            #args = btconc_ba
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
-    bal_area_set = get_bal_area_set(m, ec)
 
-    return (sum(m.DomStorDischargedFromTo[ec, args, ba_dest]
-                for ba_dest in bal_area_set
-               )
+    return (m.DomStorDischargedFrom[ec, args]
             ==
             sum(m.StorDischarged[iy, est, args]
                 for est in m.EnergyStorTech 
@@ -3459,11 +3502,8 @@ model.dom_stor_discharged_from_constraint = Constraint(model.EC_BTCONC_BA,
 
 def imp_stor_discharged_from_rule(m, ec, *args):            #args = btconc_ba
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
-    bal_area_set = get_bal_area_set(m, ec)
 
-    return (sum(m.ImpStorDischargedFromTo[ec, args, ba_dest]
-                for ba_dest in bal_area_set
-               )
+    return (m.ImpStorDischargedFrom[ec, args]
             ==
             sum(m.StorDischarged[iy, est, args]
                 for est in m.EnergyStorTech 
@@ -3483,6 +3523,10 @@ model.imp_stor_discharged_from_constraint = Constraint(model.EC_BTCONC_BA,
 def end_use_demand_components_rule1(m, ec, *args):          #args = btconc_ba
     btconc = args[0 : m.num_conc_time_colms]
     ba = args[m.num_conc_time_colms : m.num_conc_time_colms + m.num_geog_colms]
+
+#### NOTE: args are actually = upto_btconc_upto_ba
+####       hence btconc in this function is actually upto_btconc
+####       and ba in this func is actually upto_ba
 
     tl = get_time_level(m, btconc)
     gl = get_geog_level(m, ba)
@@ -3511,7 +3555,7 @@ def end_use_demand_components_rule2(m, ec, *args):          #args = btconc_ba
 model.end_use_demand_var_constraint2 = Constraint(model.EC_BTCONC_BA, 
     rule = end_use_demand_components_rule2)
 
-#########                   ECT related                         #############
+#########                   ECT I/O granularity related         #############
 
 def ect_input_dom_rule1(m, iy, ect, *args):                 #args = btconc_ba_coarser_gran
     btconc_coarser_gran = args[0 : m.num_conc_time_colms]
@@ -3581,6 +3625,52 @@ def ect_input_imp_rule2(m, iy, ect, *args):                 #args = btconc_ba_co
 model.ect_input_imp_constraint2 = Constraint(model.IY_ECTFILT_BTCONC_BA_COARSER_GRAN, 
     rule = ect_input_imp_rule2)
 
+#########                   EC prod/import constraints related  #############
+
+def max_domestic_prod_rule(m, ppec, *args):                 #args = constraints_time_geog
+    constraints_time_coarser_gran = args[0 : m.num_time_levels_to_use]
+    constraints_geog_coarser_gran = args[m.num_time_levels_to_use : m.num_time_levels_to_use + m.num_geog_colms]
+
+    if (m.day_no_time_elem_reqd):
+        constraints_time_coarser_gran_conc = constraints_time_coarser_gran[0:2] + (DUMMY_TIME_STR,) + constraints_time_coarser_gran[2:]
+    else:
+        constraints_time_coarser_gran_conc = constraints_time_coarser_gran
+
+    return (m.MaxDomesticProd[ppec, args] ==
+            sum((m.MaxDomesticProdVar[ppec, btconc, ba] *
+                 get_time_scale_factor(m, constraints_time_coarser_gran_conc, btconc))
+                for btconc in get_bal_time_conc_set(m, ppec) 
+                if is_contained_in_time(m, constraints_time_coarser_gran_conc, btconc) 
+                for ba in get_bal_area_set(m, ppec) 
+                if is_contained_in_geog(m, constraints_geog_coarser_gran, ba)
+               )
+           )
+
+model.max_domestic_prod_constraint = Constraint(model.PPEC_CT_CA, 
+    rule = max_domestic_prod_rule)
+
+def max_import_rule(m, ec, *args):                          #args = constraints_time_geog
+    constraints_time_coarser_gran = args[0 : m.num_time_levels_to_use]
+    constraints_geog_coarser_gran = args[m.num_time_levels_to_use : m.num_time_levels_to_use + m.num_geog_colms]
+
+    if (m.day_no_time_elem_reqd):
+        constraints_time_coarser_gran_conc = constraints_time_coarser_gran[0:2] + (DUMMY_TIME_STR,) + constraints_time_coarser_gran[2:]
+    else:
+        constraints_time_coarser_gran_conc = constraints_time_coarser_gran
+
+    return (m.MaxImport[ec, args] ==
+            sum((m.MaxImportVar[ec, btconc, ba] *
+                 get_time_scale_factor(m, constraints_time_coarser_gran_conc, btconc))
+                for btconc in get_bal_time_conc_set(m, ec) 
+                if is_contained_in_time(m, constraints_time_coarser_gran_conc, btconc) 
+                for ba in get_bal_area_set(m, ec) 
+                if is_contained_in_geog(m, constraints_geog_coarser_gran, ba)
+               )
+           )
+
+model.max_import_constraint = Constraint(model.EC_CT_CA, 
+    rule = max_import_rule)
+
 #########                   User specified                      #############
 
 constraint_tuples_list = []
@@ -3637,16 +3727,23 @@ if isinstance(model, AbstractModel):
 
 delete_supply_params_data(instance)
 
+logger.info("Deleted some data that is no longer required")
+print("Deleted some data that is no longer required")
+
 #### Validate and add user specified constraints, if any
 if (supply.validate_param(USERCONSTRAINTS_PARAM_NAME, model = instance) == False):
     print(f"ERROR: {USERCONSTRAINTS_PARAM_NAME} parameter validation failed")
     script_exit(-1)
 
+logger.info(f"Completed checking for (and validation of) {USERCONSTRAINTS_PARAM_NAME} parameter")
+print(f"Completed checking for (and validation of) {USERCONSTRAINTS_PARAM_NAME} parameter")
+
 uc_dict_list = supply.get_filtered_parameter(USERCONSTRAINTS_PARAM_NAME, model = instance)
 
 if (uc_dict_list is not None):
     num_uc = len(uc_dict_list)
-    print(f"{num_uc} user constraints specified")
+    logger.info(f"{num_uc} user constraint(s) specified")
+    print(f"{num_uc} user constraint(s) specified")
 
     for index, uc_dict in enumerate(uc_dict_list):
         constraint_tuples_list = uc_dict.get(CONSTRAINT_DICT_VECTORS_KEY)
@@ -3660,8 +3757,14 @@ if (uc_dict_list is not None):
 
         setattr(instance, constraint_name, Constraint(index_set, rule = user_constraint_rule))
 
-        print("Added User Constraint :", constraint_name)
+        # print("Added User Constraint :", constraint_name)
         # getattr(instance, constraint_name).pprint()
+
+    logger.info(f"Added {num_uc} user constraint(s)")
+    print(f"Added {num_uc} user constraint(s)")
+else:
+    logger.info(f"No user constraint(s) specified")
+    print(f"No user constraint(s) specified")
 
 #### Create LP file for the instance and call the solver
 if (solver_executable is not None):
